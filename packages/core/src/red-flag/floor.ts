@@ -6,7 +6,7 @@
  * trusted to be the last line of defence.
  */
 
-import { RED_FLAG_RULES, type RedFlagFamily } from "./patterns";
+import { RED_FLAG_RULES, type RedFlagFamily, type RedFlagRule } from "./patterns";
 
 /**
  * The floor's verdict.
@@ -34,18 +34,68 @@ export const NO_RED_FLAG: RedFlagVerdict = {
 };
 
 /**
- * Lowercase, strip punctuation to spaces, collapse whitespace.
+ * Words that carry no clinical signal and sit between the ones that do.
  *
- * Patients write "Nyeri  dada!!" and "nyeri dadanya" - the first must match,
- * the second must still match on the "nyeri dada" substring.
+ * This exists because patients do not write patterns. A smoke test on the
+ * live process caught exactly this: "dada saya kayak di tinju" walked past a
+ * table that listed "dada kayak di tinju", because the pronoun broke the
+ * adjacency the substring match depends on. Enumerating every insertion would
+ * never finish; dropping the insertions does.
+ *
+ * Deliberately conservative. Negations ("tidak", "bukan", "tanpa") are NOT
+ * here - the floor does not parse negation, and quietly deleting it would look
+ * like it does. Durations ("sejak", "hari", "jam") are left alone too: a
+ * pattern like "demam tinggi" does not need them, and dropping them would
+ * erase context a clinician reading the audit trail expects to see.
+ */
+const NOISE_WORDS = new Set([
+  "saya",
+  "aku",
+  "gue",
+  "gua",
+  "kami",
+  "kita",
+  "kamu",
+  "anda",
+  "dia",
+  "rasanya",
+  "rasa",
+  "terasa",
+  "kayak",
+  "kaya",
+  "kayaknya",
+  "seperti",
+  "yang",
+  "itu",
+  "ini",
+]);
+
+/**
+ * Lowercase, strip punctuation to spaces, drop noise words, collapse
+ * whitespace.
+ *
+ * Both the message and the pattern table run through this, so a pattern is
+ * written the way a patient would say it and still matches the variants.
  */
 export function normalize(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .split(/\s+/)
+    .filter((word) => word !== "" && !NOISE_WORDS.has(word))
+    .join(" ");
 }
+
+/**
+ * The table, normalised once at load.
+ *
+ * Patterns go through the same function as messages, so "dada kayak di tinju"
+ * becomes "dada di tinju" and matches however the patient padded it.
+ */
+const NORMALIZED_RULES: RedFlagRule[] = RED_FLAG_RULES.map((rule) => ({
+  ...rule,
+  patterns: rule.patterns.map(normalize),
+}));
 
 /**
  * Run the floor.
@@ -57,7 +107,7 @@ export function scan(text: string): RedFlagVerdict {
   const normalized = normalize(text);
   if (normalized === "") return NO_RED_FLAG;
 
-  for (const rule of RED_FLAG_RULES) {
+  for (const rule of NORMALIZED_RULES) {
     if (rule.patterns.some((pattern) => normalized.includes(pattern))) {
       return {
         hit: true,
@@ -71,3 +121,6 @@ export function scan(text: string): RedFlagVerdict {
 
   return NO_RED_FLAG;
 }
+
+/** The normalised pattern table, for tests that assert on matching, not wording. */
+export const normalizedPatterns = (): RedFlagRule[] => NORMALIZED_RULES;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalize, scan } from "./floor";
+import { normalize, normalizedPatterns, scan } from "./floor";
 import { RED_FLAG_RULES } from "./patterns";
 
 describe("normalize", () => {
@@ -22,6 +22,38 @@ describe("normalize", () => {
   test("empty stays empty", () => {
     expect(normalize("")).toBe("");
     expect(normalize("!!!")).toBe("");
+  });
+});
+
+describe("normalize - noise words", () => {
+  test("drops the pronoun that breaks adjacency", () => {
+    // Caught by a smoke test against the live process: "dada saya kayak di
+    // tinju" walked past a table listing "dada kayak di tinju".
+    expect(normalize("dada saya kayak di tinju")).toBe("dada di tinju");
+  });
+
+  test("drops fillers from either side of the trigger", () => {
+    expect(normalize("dada ini terasa seperti ditusuk")).toBe("dada ditusuk");
+  });
+
+  test("keeps negations, so the floor still looks like it reads them", () => {
+    // Negation is tolerated by design. Deleting "tidak" would hide that.
+    expect(normalize("tidak ada nyeri dada")).toBe("tidak ada nyeri dada");
+    expect(normalize("tidak kejang")).toBe("tidak kejang");
+  });
+
+  test("keeps durations", () => {
+    expect(normalize("demam sejak tiga hari yang lalu")).toContain("sejak");
+  });
+
+  test("is idempotent", () => {
+    const once = normalize("dada saya kayak di tinju sejak tadi malam");
+
+    expect(normalize(once)).toBe(once);
+  });
+
+  test("a message made only of noise words normalises away", () => {
+    expect(normalize("saya yang ini itu")).toBe("");
   });
 });
 
@@ -78,6 +110,19 @@ describe("scan - formal Bahasa", () => {
 describe("scan - colloquial Bahasa", () => {
   test("dada kayak di tinju", () => {
     expect(scan("dada kayak di tinju rasanya").family).toBe("cardiac");
+  });
+
+  test("the same phrase with a pronoun inserted, as a patient writes it", () => {
+    expect(scan("dada saya kayak di tinju sejak tadi malam").family).toBe("cardiac");
+  });
+
+  test("a filler between the noun and the imagery", () => {
+    expect(scan("dada ini terasa seperti ditusuk").family).toBe("cardiac");
+  });
+
+  test("noise words alone never manufacture a hit", () => {
+    expect(scan("saya yang ini itu").hit).toBe(false);
+    expect(scan("saya mau ambil obat lanjutan").hit).toBe(false);
   });
 
   test("keringat dingin", () => {
@@ -191,5 +236,28 @@ describe("the rule table", () => {
     const families = RED_FLAG_RULES.map((rule) => rule.family);
 
     expect(new Set(families).size).toBe(families.length);
+  });
+
+  test("no normalised pattern collapses to nothing", () => {
+    // A pattern made only of noise words would match every message.
+    for (const rule of normalizedPatterns()) {
+      for (const pattern of rule.patterns) {
+        expect(pattern.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test("every normalised pattern is already normalised", () => {
+    for (const rule of normalizedPatterns()) {
+      for (const pattern of rule.patterns) {
+        expect(normalize(pattern)).toBe(pattern);
+      }
+    }
+  });
+
+  test("normalising the table does not empty any rule", () => {
+    for (const rule of normalizedPatterns()) {
+      expect(rule.patterns.length).toBeGreaterThan(0);
+    }
   });
 });

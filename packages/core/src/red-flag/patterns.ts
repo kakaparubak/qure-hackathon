@@ -55,10 +55,11 @@ export const RED_FLAG_RULES: RedFlagRule[] = [
       "dada nyeri",
       "dada sakit",
       "sakit dada",
-      "dada terasa ditekan",
-      "dada kayak ditekan",
+      // "terasa" and "kayak" are noise words, dropped before matching, so
+      // "dada saya kayak di tinju" reduces to "dada di tinju" - which is why
+      // one pattern per image is enough here.
+      "dada ditekan",
       "dada di tinju",
-      "dada kayak di tinju",
       "dada ditusuk",
       "dada terbakar",
       "dada berat",
