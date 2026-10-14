@@ -1,12 +1,20 @@
 # WhatsApp ↔ decision-model pipeline — implementation plan
 
+> **PARTLY SUPERSEDED.** This plan shipped the thin slice, but three of its
+> assumptions turned out to be wrong and the PRD's red-flag floor was missing
+> from it. Read the design spec's "Changes made while implementing this spec"
+> before following anything below: the wire format is System One rather than
+> chat completions, the floor now runs first, and escalation text comes from
+> `reply/playbooks.ts`. Kept as a record of what was planned, not as current
+> instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A real WhatsApp message reaches the decision model and gets a Bahasa Indonesia reply sent back, with the pipeline also driveable by `curl` so it is provable without a linked phone.
 
 **Architecture:** One Bun process. `BaileysChannel` and `POST /webhook/inbound` both feed the same orchestrator; the orchestrator owns dedup, the model call, and the failure rule. The model and the channel are each behind an interface, so the orchestrator tests run offline against fakes.
 
-**Tech Stack:** Bun, TypeScript strict, Fastify, zod, Drizzle (unused tonight), Baileys, OpenRouter-compatible chat completions.
+**Tech Stack:** Bun, TypeScript strict, Fastify, zod, Drizzle (unused tonight), Baileys, OpenRouter System One.
 
 **Spec:** `docs/superpowers/specs/2026-10-14-whatsapp-llm-pipeline-design.md`
 
