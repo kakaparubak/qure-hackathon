@@ -8,7 +8,7 @@
 
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { InboundMessage, OutboundMessage } from "@qure/core/contracts";
+import type { InboundMessage, OutboundMessage } from "@qure/core";
 
 const INBOUND_SCHEMA = z.object({
   phone: z.string().regex(/^\d{8,15}$/, "phone must be E.164 digits without '+'"),

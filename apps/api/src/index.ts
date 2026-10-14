@@ -1,9 +1,38 @@
+import { ConfigError, loadConfig } from "@qure/core/config";
+import type { Orchestrator } from "@qure/core/triage/orchestrator";
 import { buildApp } from "./app";
+import { wire } from "./wiring";
 
-const app = buildApp();
-const port = Number(process.env.PORT ?? 3000);
+async function main(): Promise<void> {
+  const config = loadConfig(process.env);
 
-app.listen({ port, host: "0.0.0.0" }).catch((err) => {
-  app.log.error(err);
+  // The app is built before the pipeline exists so that wiring can log through
+  // the app's own logger rather than reaching for the console. Requests that
+  // arrive before wiring finishes get an explicit error, not a silent drop.
+  let orchestrator: Orchestrator | null = null;
+
+  const app = buildApp({
+    logger: true,
+    handleInbound: async (msg) => {
+      if (!orchestrator) throw new Error("pipeline is still starting");
+      return orchestrator.handleInbound(msg);
+    },
+  });
+
+  const wiring = await wire(config, (text) => app.log.info(text));
+  orchestrator = wiring.orchestrator;
+
+  app.log.info(`channel mode: ${wiring.channelMode}`);
+  await app.listen({ port: config.port, host: "0.0.0.0" });
+}
+
+main().catch((error: unknown) => {
+  if (error instanceof ConfigError) {
+    process.stderr.write(`[qure] configuration error: ${error.message}\n`);
+    process.stderr.write("[qure] copy .env.example to .env and fill it in.\n");
+    process.exit(1);
+  }
+
+  process.stderr.write(`[qure] fatal: ${error instanceof Error ? error.stack : String(error)}\n`);
   process.exit(1);
 });

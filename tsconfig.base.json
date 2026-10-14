@@ -8,6 +8,10 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    "paths": {
+      "@qure/core": ["./packages/core/src/index.ts"],
+      "@qure/core/*": ["./packages/core/src/*.ts"]
+    }
   }
 }

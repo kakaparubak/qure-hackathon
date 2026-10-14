@@ -12,6 +12,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "baileys": "^7.0.0-rc14",
     "zod": "^4.6.7"
   }
 }

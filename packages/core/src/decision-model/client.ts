@@ -11,13 +11,14 @@ import { DecisionModelError, type DecisionModel } from "./types";
 
 const TIMEOUT_MS = 8_000;
 
-export type ModelConfig = Pick<
+/** Named distinctly from config's ModelConfig: the barrel exports both. */
+export type DecisionModelConfig = Pick<
   Config["model"],
   "endpoint" | "apiKey" | "primaryId" | "fallbackId"
 >;
 
 async function askModel(
-  config: ModelConfig,
+  config: DecisionModelConfig,
   modelId: string,
   msg: InboundMessage,
   fetchImpl: typeof fetch,
@@ -54,7 +55,7 @@ async function askModel(
 }
 
 export function createDecisionModelClient(
-  config: ModelConfig,
+  config: DecisionModelConfig,
   fetchImpl: typeof fetch = fetch,
 ): DecisionModel {
   return {

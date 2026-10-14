@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TEMPLATES } from "@qure/core/reply/templates";
-import type { InboundMessage } from "@qure/core/contracts";
+import type { InboundMessage } from "@qure/core";
 import { buildApp } from "./app";
 
 /**
