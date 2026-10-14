@@ -5,14 +5,32 @@
  * here rather than an `undefined` travelling into a fetch three calls deep.
  */
 
+/**
+ * One model slot.
+ *
+ * Two per-model knobs, and both exist because the slots are not interchangeable:
+ *
+ * - `cutoff` is the red_flag probability at which this model's answer counts as
+ *   an emergency. It is NOT 0.5, and it is NOT shared between models: each was
+ *   calibrated against its own score distribution (perplexity 0.15, jev 0.31,
+ *   clef 0.11). Using one model's cutoff on another's output silently changes
+ *   who gets escalated.
+ * - `urgencyCeiling` is the highest urgency a slot may report. A small model
+ *   asked for 0-4 will happily say 4; capping it keeps a weak model from
+ *   claiming emergency authority it has not earned.
+ */
+export interface ModelSlot {
+  id: string;
+  cutoff: number;
+  urgencyCeiling: number;
+}
+
 export interface ModelConfig {
-  /** Full URL of the chat-completions endpoint, path included. */
+  /** Full URL of the System One endpoint, path included. */
   endpoint: string;
   apiKey: string;
-  primaryId: string;
-  fallbackId: string;
-  cutoffPrimary: number;
-  cutoffFallback: number;
+  /** Tried in order; the first slot that answers wins. */
+  slots: ModelSlot[];
 }
 
 export interface WhatsAppConfig {
@@ -47,6 +65,14 @@ const REQUIRED_VARS = [
 ] as const;
 
 /**
+ * Default urgency ceilings by slot position: primary 4, fallback 3, tertiary 2.
+ *
+ * A smaller model sits later in the chain, so it gets less emergency authority.
+ * Overridable per slot with MODEL_<POSITION>_URGENCY_CEILING.
+ */
+const DEFAULT_URGENCY_CEILINGS = [4, 3, 2] as const;
+
+/**
  * Report every missing variable in one error.
  *
  * Failing on the first one turns setting up `.env` into a guessing game of
@@ -67,6 +93,11 @@ function required(env: Record<string, string | undefined>, name: string): string
   return value.trim();
 }
 
+function optional(env: Record<string, string | undefined>, name: string): string | null {
+  const value = env[name]?.trim();
+  return value ? value : null;
+}
+
 function cutoff(env: Record<string, string | undefined>, name: string): number {
   const raw = required(env, name);
   const value = Number(raw);
@@ -74,6 +105,59 @@ function cutoff(env: Record<string, string | undefined>, name: string): number {
     throw new ConfigError(`${name} must be a number between 0 and 1, got: ${raw}`);
   }
   return value;
+}
+
+function urgencyCeiling(
+  env: Record<string, string | undefined>,
+  name: string,
+  fallback: number,
+): number {
+  const raw = optional(env, name);
+  if (raw === null) return fallback;
+
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 4) {
+    throw new ConfigError(`${name} must be an integer between 0 and 4, got: ${raw}`);
+  }
+  return value;
+}
+
+const POSITIONS = ["PRIMARY", "FALLBACK", "TERTIARY"] as const;
+
+/**
+ * Build the model chain from the environment.
+ *
+ * Primary and fallback are mandatory. Tertiary is optional but must be complete
+ * if present: a slot with an id and no cutoff would silently escalate at the
+ * primary's threshold.
+ */
+function modelConfig(env: Record<string, string | undefined>): ModelConfig {
+  const slots: ModelSlot[] = [];
+
+  for (const [index, position] of POSITIONS.entries()) {
+    const idName = `MODEL_${position}_ID`;
+    const isOptional = position === "TERTIARY";
+
+    const id = isOptional ? optional(env, idName) : required(env, idName);
+    if (id === null) continue;
+
+    const ceilingName = `MODEL_${position}_URGENCY_CEILING`;
+    const defaultCeiling = DEFAULT_URGENCY_CEILINGS[index] ?? 2;
+
+    slots.push({
+      id,
+      cutoff: cutoff(env, `RED_FLAG_CUTOFF_${position}`),
+      urgencyCeiling: urgencyCeiling(env, ceilingName, defaultCeiling),
+    });
+  }
+
+  return {
+    endpoint: required(env, "OPENROUTER_ENDPOINT"),
+    apiKey: required(env, "OPENROUTER_API_KEY"),
+    // Never logged: the key reaches the provider in an authorization header
+    // and nothing else in the process reads it.
+    slots,
+  };
 }
 
 function whatsappConfig(env: Record<string, string | undefined>): WhatsAppConfig | null {
@@ -100,18 +184,25 @@ function port(env: Record<string, string | undefined>): number {
   return value;
 }
 
+/**
+ * The slot that answered, by id.
+ *
+ * Falls back to the first slot when the id is unknown (a provider that renames
+ * its model mid-response, say). The primary's cutoff is the conservative
+ * choice: it is the strictest of the three.
+ */
+export function slotFor(slots: ModelSlot[], modelId: string | null): ModelSlot {
+  const found = modelId === null ? undefined : slots.find((slot) => slot.id === modelId);
+  const first = slots[0];
+  if (!first) throw new ConfigError("the model chain is empty");
+  return found ?? first;
+}
+
 export function loadConfig(env: Record<string, string | undefined>): Config {
   assertRequiredPresent(env);
 
   return {
-    model: {
-      endpoint: required(env, "OPENROUTER_ENDPOINT"),
-      apiKey: required(env, "OPENROUTER_API_KEY"),
-      primaryId: required(env, "MODEL_PRIMARY_ID"),
-      fallbackId: required(env, "MODEL_FALLBACK_ID"),
-      cutoffPrimary: cutoff(env, "RED_FLAG_CUTOFF_PRIMARY"),
-      cutoffFallback: cutoff(env, "RED_FLAG_CUTOFF_FALLBACK"),
-    },
+    model: modelConfig(env),
     whatsapp: whatsappConfig(env),
     port: port(env),
   };

@@ -6,12 +6,17 @@ import type { DecisionModel } from "./types";
  * single fake covers the happy path, provider failure, and a hung response.
  */
 export class FakeDecisionModel implements DecisionModel {
+  /** How many times the pipeline reached the model. The floor must keep this at 0. */
+  calls = 0;
+
   constructor(
     private readonly decision: Decision,
     private readonly mode: "ok" | "throw" | "hang" = "ok",
   ) {}
 
   async decide(_msg: InboundMessage): Promise<Decision> {
+    this.calls += 1;
+
     if (this.mode === "throw") throw new Error("provider unavailable");
     if (this.mode === "hang") return new Promise<Decision>(() => {});
     return this.decision;
@@ -30,7 +35,7 @@ export function neutralDecision(overrides: Partial<Decision> = {}): Decision {
     wantsHuman: 0,
     category: "minor",
     matchedFamily: null,
-    model: "pplx-decider-v1.1",
+    model: "perplexity/pplx-decider-v1.1-27b",
     raw: null,
     ...overrides,
   };

@@ -1,25 +1,29 @@
 /**
- * HTTP decision model: primary slug first, fallback slug on any primary
- * failure. Returns a Decision or throws DecisionModelError - it never
- * invents a low-urgency answer.
+ * HTTP decision model: the configured slots tried in order, first answer wins.
+ *
+ * Returns a Decision or throws DecisionModelError - it never invents a
+ * low-urgency answer. A caller that cannot get a decision must escalate; that
+ * is the fail-upward property, and it is enforced by the orchestrator, not
+ * softened here.
  */
 
-import type { Config } from "../config";
 import type { Decision, InboundMessage } from "../contracts";
-import { parseDecision, SYSTEM_PROMPT } from "./schema";
+import type { ModelSlot } from "../config";
+import { buildRequest, parseDecision } from "./schema";
 import { DecisionModelError, type DecisionModel } from "./types";
 
 const TIMEOUT_MS = 8_000;
 
 /** Named distinctly from config's ModelConfig: the barrel exports both. */
-export type DecisionModelConfig = Pick<
-  Config["model"],
-  "endpoint" | "apiKey" | "primaryId" | "fallbackId"
->;
+export interface DecisionModelConfig {
+  endpoint: string;
+  apiKey: string;
+  slots: ModelSlot[];
+}
 
 async function askModel(
   config: DecisionModelConfig,
-  modelId: string,
+  slot: ModelSlot,
   msg: InboundMessage,
   fetchImpl: typeof fetch,
 ): Promise<Decision> {
@@ -29,29 +33,27 @@ async function askModel(
       "content-type": "application/json",
       authorization: `Bearer ${config.apiKey}`,
     },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: msg.text },
-      ],
-      response_format: { type: "json_object" },
-    }),
+    body: JSON.stringify(buildRequest(slot.id, msg)),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 
   if (!response.ok) {
+    // A quota or auth error arrives as a JSON envelope with an `error` object;
+    // the status alone is not enough to tell "rate limited" from "bad key".
     const preview = await response.text().catch(() => "");
     throw new DecisionModelError(
-      `${modelId} returned HTTP ${response.status}: ${preview.slice(0, 200)}`,
+      `${slot.id} returned HTTP ${response.status}: ${preview.slice(0, 200)}`,
     );
   }
 
   const body: unknown = await response.json().catch((cause: unknown) => {
-    throw new DecisionModelError(`${modelId} returned a body that is not JSON`, cause);
+    throw new DecisionModelError(`${slot.id} returned a body that is not JSON`, cause);
   });
 
-  return parseDecision(body, modelId);
+  return parseDecision(body, {
+    requestedModelId: slot.id,
+    urgencyCeiling: slot.urgencyCeiling,
+  });
 }
 
 export function createDecisionModelClient(
@@ -62,15 +64,17 @@ export function createDecisionModelClient(
     async decide(msg: InboundMessage): Promise<Decision> {
       const failures: string[] = [];
 
-      for (const modelId of [config.primaryId, config.fallbackId]) {
+      for (const slot of config.slots) {
         try {
-          return await askModel(config, modelId, msg, fetchImpl);
+          return await askModel(config, slot, msg, fetchImpl);
         } catch (error: unknown) {
           failures.push(error instanceof Error ? error.message : String(error));
         }
       }
 
-      throw new DecisionModelError(`Both decision models failed: ${failures.join(" | ")}`);
+      throw new DecisionModelError(
+        `All ${config.slots.length} decision model(s) failed: ${failures.join(" | ")}`,
+      );
     },
   };
 }

@@ -1,28 +1,89 @@
 import { describe, expect, test } from "bun:test";
-import { loadConfig } from "./config";
+import { loadConfig, slotFor, type ModelSlot } from "./config";
 
 const VALID_ENV: Record<string, string> = {
-  OPENROUTER_ENDPOINT: "https://example.test/v1/chat/completions",
+  OPENROUTER_ENDPOINT: "https://example.test/api/v1/systemone",
   OPENROUTER_API_KEY: "test-key",
-  MODEL_PRIMARY_ID: "pplx-decider-v1.1",
-  MODEL_FALLBACK_ID: "jev-1.13",
+  MODEL_PRIMARY_ID: "perplexity/pplx-decider-v1.1-27b",
+  MODEL_FALLBACK_ID: "typesafe/jev-1.13",
   RED_FLAG_CUTOFF_PRIMARY: "0.15",
   RED_FLAG_CUTOFF_FALLBACK: "0.31",
   PORT: "3000",
+};
+
+const TERTIARY_ENV: Record<string, string> = {
+  ...VALID_ENV,
+  MODEL_TERTIARY_ID: "cloudflare/clef-27b",
+  RED_FLAG_CUTOFF_TERTIARY: "0.11",
 };
 
 describe("loadConfig", () => {
   test("parses a complete environment", () => {
     const config = loadConfig(VALID_ENV);
 
-    expect(config.model.endpoint).toBe("https://example.test/v1/chat/completions");
-    expect(config.model.primaryId).toBe("pplx-decider-v1.1");
-    expect(config.model.cutoffPrimary).toBe(0.15);
-    expect(config.model.cutoffFallback).toBe(0.31);
+    expect(config.model.endpoint).toBe("https://example.test/api/v1/systemone");
+    expect(config.model.slots.map((slot) => slot.id)).toEqual([
+      "perplexity/pplx-decider-v1.1-27b",
+      "typesafe/jev-1.13",
+    ]);
     expect(config.port).toBe(3000);
     expect(config.whatsapp).toBeNull();
   });
 
+  test("keeps each model's own cutoff, which is not 0.5 for any of them", () => {
+    const config = loadConfig(TERTIARY_ENV);
+
+    expect(config.model.slots.map((slot) => slot.cutoff)).toEqual([0.15, 0.31, 0.11]);
+  });
+
+  test("gives later slots a lower urgency ceiling by default", () => {
+    // A small model must not be able to claim urgency 4.
+    const config = loadConfig(TERTIARY_ENV);
+
+    expect(config.model.slots.map((slot) => slot.urgencyCeiling)).toEqual([4, 3, 2]);
+  });
+
+  test("a ceiling can be set per slot", () => {
+    const config = loadConfig({ ...VALID_ENV, MODEL_FALLBACK_URGENCY_CEILING: "2" });
+
+    expect(config.model.slots[1]?.urgencyCeiling).toBe(2);
+  });
+
+  test("rejects a ceiling outside 0..4", () => {
+    expect(() => loadConfig({ ...VALID_ENV, MODEL_PRIMARY_URGENCY_CEILING: "5" })).toThrow(
+      /MODEL_PRIMARY_URGENCY_CEILING/,
+    );
+  });
+
+  test("the tertiary slot is optional", () => {
+    expect(loadConfig(VALID_ENV).model.slots).toHaveLength(2);
+  });
+
+  test("a tertiary slot without its cutoff is rejected", () => {
+    // Otherwise the extra model silently escalates at the primary's threshold.
+    expect(() =>
+      loadConfig({ ...VALID_ENV, MODEL_TERTIARY_ID: "cloudflare/clef-27b" }),
+    ).toThrow(/RED_FLAG_CUTOFF_TERTIARY/);
+  });
+});
+
+describe("slotFor", () => {
+  const slots: ModelSlot[] = [
+    { id: "primary", cutoff: 0.15, urgencyCeiling: 4 },
+    { id: "fallback", cutoff: 0.31, urgencyCeiling: 3 },
+  ];
+
+  test("finds the slot that answered", () => {
+    expect(slotFor(slots, "fallback").cutoff).toBe(0.31);
+  });
+
+  test("an unknown model id falls back to the strictest cutoff", () => {
+    expect(slotFor(slots, "some/renamed-model").cutoff).toBe(0.15);
+    expect(slotFor(slots, null).cutoff).toBe(0.15);
+  });
+});
+
+describe("loadConfig - validation", () => {
   test("names every missing variable at once", () => {
     expect(() => loadConfig({})).toThrow(/OPENROUTER_ENDPOINT/);
     expect(() => loadConfig({})).toThrow(/OPENROUTER_API_KEY/);
