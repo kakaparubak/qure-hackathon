@@ -2,5 +2,10 @@ node_modules/
 dist/
 .env
 .env.*
+!.env.example
 *.log
 .DS_Store
+
+# Baileys pairing state. Live WhatsApp credentials for the linked number -
+# committing this hands the account to anyone with repo access.
+.baileys/
