@@ -62,13 +62,40 @@ critical path from it.
 to E.164-without-`+`, emit `InboundMessage`, send `OutboundMessage`, ignore
 noise, rate-limit outbound. Auth state written to `.baileys/`.
 
-Linking uses Baileys' 8-digit pairing code, not a terminal QR: the adapter calls
-`requestPairingCode(WA_PAIRING_NUMBER)` and logs the code, then the operator
-enters it under Linked Devices on that phone. Chosen over QR because the code
-has a longer window and renders cleanly over SSH and tmux, where terminal QRs
-are unreliable.
+Two pairing modes, `WA_PAIRING_MODE`:
 
-Dependencies: `baileys`. Depends on nothing in `core` except the contracts.
+- **`qr`** — the usual WhatsApp Web flow, rendered as ASCII to stdout. Not bound
+  to a phone number, so a wrong or unreachable `WA_PAIRING_NUMBER` cannot break
+  it. Needs a terminal wide enough that the modules don't wrap.
+- **`code`** — `requestPairingCode(WA_PAIRING_NUMBER)`, entered under Linked
+  Devices. Renders anywhere including over SSH, but the code is bound to that
+  one number and expires in about two minutes.
+
+This document originally chose the code flow on the grounds that it "has a
+longer window" than a QR. That was backwards: the code window is roughly two
+minutes against a QR that is reissued every ~20s, and the code's number binding
+means a mismatch fails with WhatsApp's generic "check the phone number is
+correct" rather than anything diagnosable. QR is the recommendation now; both
+remain because the code flow is the only one that works over SSH.
+
+Three behaviours here exist because live testing broke the simpler versions:
+
+- **Linked-ness is `creds.me`, never `creds.registered`.** Baileys sets
+  `registered` in exactly one place, the pairing-*code* branch. A QR pairing
+  sets `creds.me` and leaves `registered` false forever, so gating on it
+  re-pairs a live session on every restart. Baileys itself branches on
+  `creds.me`, and `isPaired()` does the same.
+- **Inbound senders are resolved through LIDs.** WhatsApp is migrating accounts
+  to LIDs, so `remoteJid` is frequently `...@lid`. Resolution order is
+  `remoteJidAlt`, then `remoteJid`, then the mapping store via `getPNForLID`.
+  A sender that resolves to nobody is logged with its JID - never dropped in
+  silence.
+- **Reconnects back off and pairing attempts are capped.** A lapsed pairing
+  closes with 408/428 and an unregistered socket answers 401; the first version
+  retried on a fixed 2s timer, which hammered WhatsApp for nine minutes.
+
+Dependencies: `baileys`, `qrcode-terminal` (ASCII rendering only). Depends on
+nothing in `core` except the contracts.
 
 **`decision-model/`** — `schema.ts` owns the wire format: the request builder
 (six typed questions against one shared state) and the response parser, kept
@@ -127,8 +154,10 @@ implementations are live.
 
 1. Baileys emits a `messages.upsert` event.
 2. Adapter filters: skip groups, skip `fromMe`, skip status/broadcast, skip
-   non-`notify`. Map `key.remoteJid` → phone, `key.id` → `providerMessageId`,
-   message body → `text` and `kind`.
+   non-`notify`. Resolve the sender to a phone through `remoteJidAlt`, then
+   `remoteJid`, then the LID mapping store; map `key.id` →
+   `providerMessageId`, message body → `text` and `kind`. A sender that resolves
+   to nobody is logged with its JID and dropped.
 3. Adapter calls the registered handler.
 4. Orchestrator checks `providerMessageId` against the seen-set. Duplicate →
    return `null`, send nothing. Baileys re-delivers on reconnect; without this
@@ -191,7 +220,8 @@ rather than a `undefined` propagating into a fetch.
 | `RED_FLAG_CUTOFF_TERTIARY` | `0.11` |
 | `MODEL_*_URGENCY_CEILING` | optional; defaults to 4 / 3 / 2 by position |
 | `WA_ENABLED` | `true` to link a phone; otherwise webhook-only |
-| `WA_PAIRING_NUMBER` | E.164 number the pairing code is requested for |
+| `WA_PAIRING_MODE` | `qr` (recommended) or `code`; defaults to `code` |
+| `WA_PAIRING_NUMBER` | E.164 number the pairing code is requested for; required in `code` mode, unused by `qr` |
 | `WA_AUTH_DIR` | where pairing credentials go; defaults to `.baileys` |
 | `PORT` | defaults to 3000 |
 
@@ -249,6 +279,41 @@ build order. A smoke test against the live process then caught a real gap in it:
 dropping noise words in `normalize()` and running the pattern table through the
 same function, so a pattern is written the way a patient speaks it.
 
+**`bun run dev` did not load the environment.** `--filter @qure/api` runs the
+package script with cwd `apps/api`, so Bun loaded `apps/api/.env`, which does
+not exist, and the process died naming six missing variables. Both scripts now
+pass `--env-file` explicitly. The README's documented command had never worked.
+
+**QR pairing was added after the code flow failed on a real phone.** See the
+`channel/whatsapp.ts` section: the code is number-bound and short-lived, and its
+failure mode is WhatsApp's generic "check the phone number is correct" message,
+which sent the investigation after the wrong problem for several rounds while
+the actual cause was a lapsed code.
+
+**`requestPairingCode` was called before the socket was up.** It threw
+`Connection Closed`. It now fires on the first `qr` frame, which is the signal
+that the noise handshake completed.
+
+**Three pairing/connection behaviours were wrong, all found live.** Gating on
+`creds.registered` (false forever after a QR pairing) would have re-paired a
+live session on every restart; a fixed 2s reconnect timer hammered WhatsApp for
+nine minutes during a failed pairing; and the `loggedOut` branch returned early
+for an *unregistered* socket, which is also what a rejected pairing looks like,
+stranding the process with no code and no retry.
+
+**Inbound messages were dropped in silence when the sender was a LID.** Three
+messages arrived during the first live test and produced no log output, no
+reply, and no trace - `phoneFromJid` returns null for anything that is not
+`@s.whatsapp.net`, and the handler skipped on null. The auth dir already held
+694 `lid-mapping-*_reverse.json` files, so the mapping existed and was being
+ignored. Now resolved through `remoteJidAlt`, `remoteJid`, then the mapping
+store, and every drop logs its JID.
+
+**The orchestrator logged nothing.** Which layer decided, and why, was only
+provable in tests; on a live channel the safety property was invisible. One
+`logger` line per triaged message now names `source`, `reason`, `kind`, and
+`family`, which is what makes step 3 above checkable.
+
 ## Error handling
 
 | Failure | Behaviour |
@@ -260,10 +325,13 @@ same function, so a pattern is written the way a patient speaks it.
 | Baileys send fails | log, do not retry in a loop; next message is unaffected |
 | Baileys disconnect | log and reconnect; dedup set absorbs re-delivered messages |
 | Non-text payload (voice note, image) | reply "tolong ketik ya"; no triage, no model call |
+| Sender JID resolves to nobody (LID absent from the store) | log the JID and drop; never silent |
+| Pairing code lapses or is rejected | back off, mint a new code, stop after five attempts rather than retrying on a timer |
+| LID mapping lookup throws | treat as unresolvable; the message is logged, not lost to an exception |
 
 ## Testing
 
-Colocated, per CLAUDE.md. 213 tests, no network, no credentials.
+Colocated, per CLAUDE.md. 227 tests, no network, no credentials.
 
 - `red-flag/floor.test.ts` — per-family hits in formal and colloquial Bahasa;
   negation firing by design; the miss cases; P1-over-P2 precedence; and table
@@ -286,14 +354,20 @@ Colocated, per CLAUDE.md. 213 tests, no network, no credentials.
 - `decision-model/client.test.ts` — slot walking, bearer token, malformed body
   falls through to the next slot, and a chat-completions body must not parse.
 - `apps/api/src/app.test.ts` — `POST /webhook/inbound` via `app.inject()`.
+- `channel/whatsapp.test.ts` — JID parsing, message-kind mapping, and the two
+  behaviours live testing broke: `isPaired` treating a QR session (`me` set,
+  `registered` false) as linked, and `resolvePhone` handling the LID-only key
+  shape, the `remoteJidAlt` shortcut, an absent mapping, and a mapping store
+  that throws.
+- `config.test.ts` — pairing mode parsing, including that `qr` mode boots with
+  no pairing number and that an unknown mode is rejected.
 
 The orchestrator never touches the network or WhatsApp in tests. Any test that
 does is a bug in the test.
 
 ## Manual verification
 
-Steps 1 and 2 were run against the booted process; step 3 has not, because no
-phone has been paired yet.
+All three steps have been run.
 
 1. `curl -X POST localhost:3000/webhook/inbound` with a Bahasa complaint ⇒
    reply text in the response. Proves the LLM half.
@@ -301,14 +375,26 @@ phone has been paired yet.
    message ⇒ the cardiac playbook, because the floor answered before the model
    was consulted. Proves the safety half, and it is the demo that survives a
    provider outage.
-3. Send the same text from a real phone ⇒ same reply arrives on WhatsApp.
-   Proves the channel half. **Not yet done.**
+3. From a real phone, three messages, each producing one audit line ⇒ the whole
+   ladder on a live channel:
+
+   ```
+   source=red_flag_floor  reason=red_flag_floor  kind=escalation  family=cardiac
+   source=decision_model  reason=none            kind=follow_up
+   source=decision_model  reason=none            kind=intake
+   ```
+
+   The emergency returned the cardiac playbook ("Duduk atau setengah berbaring",
+   no aspirin) with the model never called; the ambiguous message got the
+   follow-up question; the routine one reached intake. Proves the channel half
+   and the escalate-only ladder at once.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
-| Baileys pairing eats the evening | HTTP route already proves the pipeline; pairing attaches whenever it lands |
+| Baileys pairing eats the evening | it did, mostly over the code flow's number binding and short window; QR pairing now exists as the fallback, and the HTTP route keeps the pipeline provable meanwhile |
+| A LID-only sender is silently unresolvable | resolution walks `remoteJidAlt` → `remoteJid` → the mapping store, and every unresolvable drop is logged with its JID |
 | Number gets flagged | Baileys is demo-only and the adapter rate-limits; use a spare number, not a personal one |
 | Provider JSON shape differs from assumption | it did, and it was corrected; the mapper is isolated in one file, so the next change is too |
 | A cutoffs or slug revision behind a model alias invalidates the thresholds | cutoffs are env-driven and documented next to the measurement that produced them; re-tune, do not reuse |
@@ -316,6 +402,6 @@ phone has been paired yet.
 
 ## Next after tonight
 
-Postgres behind a repository interface, then the red-flag floor, then the
-conversational LLM for ambiguous cases. Each replaces a fake the loop already
-accepts.
+Postgres behind a repository interface, then the conversational LLM for
+ambiguous cases. Each replaces a fake the loop already accepts. The red-flag
+floor is no longer on this list - it is built and verified live.

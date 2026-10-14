@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { kindOf, phoneFromJid, textOf } from "./whatsapp";
+import { isPaired, kindOf, phoneFromJid, resolvePhone, textOf } from "./whatsapp";
 
 describe("phoneFromJid", () => {
   test("extracts the number from a plain person JID", () => {
@@ -92,5 +92,84 @@ describe("textOf", () => {
 
   test("prefers the message text over a caption", () => {
     expect(textOf({ conversation: "utama", imageMessage: { caption: "lain" } })).toBe("utama");
+  });
+});
+
+describe("resolvePhone", () => {
+  const sock = (pn: string | null) => ({
+    signalRepository: { lidMapping: { getPNForLID: async () => pn } },
+  });
+
+  test("uses the phone-number JID when one is present", async () => {
+    const phone = await resolvePhone(sock(null), {
+      remoteJid: "628123456789@s.whatsapp.net",
+    });
+
+    expect(phone).toBe("628123456789");
+  });
+
+  test("prefers remoteJidAlt when remoteJid is a LID", async () => {
+    const phone = await resolvePhone(sock("628999999999@s.whatsapp.net"), {
+      remoteJid: "100124931915810@lid",
+      remoteJidAlt: "628123456789@s.whatsapp.net",
+    });
+
+    expect(phone).toBe("628123456789");
+  });
+
+  test("resolves a bare LID through the mapping store", async () => {
+    // The real shape of a LID-only inbound message. Before this existed the
+    // message was dropped without a log line, which is what made a live test
+    // look like "nothing arrived".
+    const phone = await resolvePhone(sock("6281717150770@s.whatsapp.net"), {
+      remoteJid: "100124931915810@lid",
+    });
+
+    expect(phone).toBe("6281717150770");
+  });
+
+  test("returns null when the LID is not in the mapping store", async () => {
+    expect(await resolvePhone(sock(null), { remoteJid: "100124931915810@lid" })).toBeNull();
+  });
+
+  test("a failing mapping lookup is not fatal", async () => {
+    const failing = {
+      signalRepository: {
+        lidMapping: {
+          getPNForLID: async () => {
+            throw new Error("store unavailable");
+          },
+        },
+      },
+    };
+
+    expect(await resolvePhone(failing, { remoteJid: "100124931915810@lid" })).toBeNull();
+  });
+
+  test("rejects group JIDs rather than resolving them", async () => {
+    expect(await resolvePhone(sock("628123456789@s.whatsapp.net"), {
+      remoteJid: "120363000000000000@g.us",
+    })).toBeNull();
+  });
+});
+
+describe("isPaired", () => {
+  test("an account id means the session is already linked", () => {
+    expect(isPaired({ me: { id: "6282258458984:1@s.whatsapp.net" } })).toBe(true);
+  });
+
+  test("a QR pairing leaves registered false, so me is what counts", () => {
+    // The real shape after scanning a QR: creds.me is set, registered is not.
+    // Gating pairing on `registered` re-paired a live session on restart.
+    expect(isPaired({ me: { id: "6282258458984:1@s.whatsapp.net" }, registered: false })).toBe(true);
+  });
+
+  test("no account id means pairing is still needed", () => {
+    expect(isPaired({})).toBe(false);
+    expect(isPaired({ registered: false })).toBe(false);
+  });
+
+  test("an explicit null me is treated as unpaired", () => {
+    expect(isPaired({ me: null })).toBe(false);
   });
 });

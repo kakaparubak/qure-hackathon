@@ -12,6 +12,21 @@ A patient's WhatsApp message is triaged and a Bahasa Indonesia reply is sent
 back. The same pipeline is reachable over HTTP, so it can be demonstrated by
 `curl` without a linked phone.
 
+Verified end to end on a real phone: an emergency message returned the cardiac
+playbook with the decision model never called, an ambiguous message got the
+follow-up question, and a routine request reached intake. Each is one line in
+the log:
+
+```
+triage 6285190013636: source=red_flag_floor reason=red_flag_floor kind=escalation family=cardiac
+triage 6285190013636: source=decision_model reason=none kind=follow_up
+triage 6285190013636: source=decision_model reason=none kind=intake
+```
+
+That `source=` field is the audit trail. `red_flag_floor` means the model was
+never consulted - the property the whole safety argument rests on, visible on a
+live channel rather than only in tests.
+
 ```
 phone -> Baileys channel ─┐
                           ├─> orchestrator ─> L1 red-flag floor ─┬─ hit ─> playbook, no model call
@@ -68,9 +83,30 @@ deduplication working, not a bug.
 
 ### Link a real number
 
-Set `WA_ENABLED=true` and `WA_PAIRING_NUMBER` (E.164, digits only), restart,
-and read the 8-digit code from the log. Enter it on that phone under **Linked
-Devices**. Use a spare number - the transport is unofficial and demo-only.
+Set `WA_ENABLED=true`, pick a `WA_PAIRING_MODE`, restart. Use a spare number -
+the transport is unofficial and demo-only, and WhatsApp can flag a number for
+using it.
+
+**`WA_PAIRING_MODE=qr`** (recommended) - the usual WhatsApp Web flow, printed to
+stdout as ASCII. Not bound to any phone number, so it works even when
+`WA_PAIRING_NUMBER` is wrong or unset. WhatsApp rotates the QR every ~20s and
+only the newest scans, so stream it rather than reading a stale block:
+
+```bash
+tail -f <logfile>
+```
+
+Needs a terminal at least 63 columns wide in a monospace font, or the modules
+misalign and nothing can read it.
+
+**`WA_PAIRING_MODE=code`** - Baileys requests an 8-character code for
+`WA_PAIRING_NUMBER` (E.164, digits only). Enter it on that phone under **Linked
+Devices**. The code is bound to that number and expires in about two minutes; a
+fresh one is minted automatically as the old one lapses. Renders anywhere,
+including over SSH.
+
+Either way the log prints `WhatsApp connected as <number>` once linked, and the
+session is reused on later boots with no re-pairing.
 
 `WA_AUTH_DIR` (default `.baileys/`) holds the linked session. It is gitignored
 because those files are live credentials for the number.
@@ -103,6 +139,15 @@ pipeline rather than of one function.
   by a bounded seen-set, and a suppressed message never even reaches the model.
 - **Non-text messages get no triage.** A voice note gets "tolong ketik ya" and
   no decision is recorded.
+- **A message is never dropped silently.** Inbound senders arrive as WhatsApp
+  LIDs (`...@lid`) as often as phone numbers, and a LID that resolves to nobody
+  is logged with its JID rather than skipped. A drop with no log line is
+  indistinguishable from a message that never arrived, which is exactly how the
+  LID gap hid during a live test.
+- **Pairing retries are bounded.** A lapsed or rejected pairing backs off
+  instead of retrying on a fixed timer, and stops after five attempts. A fixed
+  2-second retry loop ran for nine minutes against WhatsApp's pairing endpoint
+  before this was caught - that is how a number gets flagged.
 
 ## Commands
 

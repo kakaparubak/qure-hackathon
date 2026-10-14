@@ -37,6 +37,8 @@ export interface WhatsAppConfig {
   /** E.164 digits, no leading '+'. */
   pairingNumber: string;
   authDir: string;
+  /** "code" (default) or "qr". See PairingMode in channel/whatsapp.ts. */
+  pairingMode: "code" | "qr";
 }
 
 export interface Config {
@@ -163,14 +165,29 @@ function modelConfig(env: Record<string, string | undefined>): ModelConfig {
 function whatsappConfig(env: Record<string, string | undefined>): WhatsAppConfig | null {
   if (env.WA_ENABLED !== "true") return null;
 
-  const pairingNumber = required(env, "WA_PAIRING_NUMBER");
-  if (!/^\d{8,15}$/.test(pairingNumber)) {
+  const pairingMode = env.WA_PAIRING_MODE?.trim() || "code";
+  if (pairingMode !== "code" && pairingMode !== "qr") {
+    throw new ConfigError(`WA_PAIRING_MODE must be "code" or "qr", got: ${pairingMode}`);
+  }
+
+  // The QR flow is not bound to a number, so an unset pairing number is only
+  // fatal in code mode - refusing to boot over an unused variable would be
+  // wrong.
+  const raw = env.WA_PAIRING_NUMBER?.trim() ?? "";
+  if (pairingMode === "code" && raw === "") {
+    throw new ConfigError("Missing required environment variable: WA_PAIRING_NUMBER");
+  }
+  if (raw !== "" && !/^\d{8,15}$/.test(raw)) {
     throw new ConfigError(
-      `WA_PAIRING_NUMBER must be 8-15 digits, E.164 without '+', got: ${pairingNumber}`,
+      `WA_PAIRING_NUMBER must be 8-15 digits, E.164 without '+', got: ${raw}`,
     );
   }
 
-  return { pairingNumber, authDir: env.WA_AUTH_DIR?.trim() || ".baileys" };
+  return {
+    pairingNumber: raw,
+    authDir: env.WA_AUTH_DIR?.trim() || ".baileys",
+    pairingMode,
+  };
 }
 
 function port(env: Record<string, string | undefined>): number {

@@ -30,7 +30,7 @@ export async function wire(config: Config, logger: (message: string) => void): P
     // here should reach a patient.
     logger("WA_ENABLED is not 'true' - running webhook-only, no WhatsApp channel.");
     return {
-      orchestrator: createOrchestrator({ model, slots, channel: new FakeChannel() }),
+      orchestrator: createOrchestrator({ model, slots, channel: new FakeChannel(), logger }),
       channelMode: "none",
     };
   }
@@ -42,10 +42,11 @@ export async function wire(config: Config, logger: (message: string) => void): P
   const channel = await createBaileysChannel({
     pairingNumber: config.whatsapp.pairingNumber,
     authDir: config.whatsapp.authDir,
+    pairingMode: config.whatsapp.pairingMode,
     logger,
   });
 
-  const orchestrator = createOrchestrator({ model, slots, channel });
+  const orchestrator = createOrchestrator({ model, slots, channel, logger });
   channel.onMessage((msg) => orchestrator.onInbound(msg));
 
   return { orchestrator, channelMode: "baileys" };

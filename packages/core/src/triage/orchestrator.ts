@@ -40,6 +40,13 @@ export interface OrchestratorDeps {
   channel: WhatsAppChannel;
   timeoutMs?: number;
   seenLimit?: number;
+  /**
+   * One line per triaged message, naming the layer that decided and why.
+   *
+   * This is the audit trail: without it, "the floor answered and the model was
+   * never called" is only provable in tests, never on a live channel.
+   */
+  logger?: (message: string) => void;
 }
 
 export interface Orchestrator {
@@ -221,6 +228,11 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
     }
 
     const kind: ReplyKind = reason !== null ? "escalation" : replyKindFor(decision, deps.slots);
+
+    deps.logger?.(
+      `triage ${msg.phone}: source=${decision.source} reason=${reason ?? "none"} kind=${kind}` +
+        (family ? ` family=${family}` : ""),
+    );
 
     return {
       phone: msg.phone,

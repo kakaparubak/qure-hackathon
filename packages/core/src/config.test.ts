@@ -116,7 +116,44 @@ describe("loadConfig - validation", () => {
       WA_PAIRING_NUMBER: "628123456789",
     });
 
-    expect(config.whatsapp).toEqual({ pairingNumber: "628123456789", authDir: ".baileys" });
+    expect(config.whatsapp).toEqual({
+      pairingNumber: "628123456789",
+      authDir: ".baileys",
+      pairingMode: "code",
+    });
+  });
+
+  test("defaults the pairing mode to a code", () => {
+    const config = loadConfig({
+      ...VALID_ENV,
+      WA_ENABLED: "true",
+      WA_PAIRING_NUMBER: "628123456789",
+    });
+
+    expect(config.whatsapp?.pairingMode).toBe("code");
+  });
+
+  test("accepts qr mode without a pairing number", () => {
+    // QR pairing is not bound to a number, so an unset one is not an error.
+    const config = loadConfig({
+      ...VALID_ENV,
+      WA_ENABLED: "true",
+      WA_PAIRING_MODE: "qr",
+    });
+
+    expect(config.whatsapp).toEqual({ pairingNumber: "", authDir: ".baileys", pairingMode: "qr" });
+  });
+
+  test("still validates a pairing number in qr mode when one is given", () => {
+    expect(() =>
+      loadConfig({ ...VALID_ENV, WA_ENABLED: "true", WA_PAIRING_MODE: "qr", WA_PAIRING_NUMBER: "+62812" }),
+    ).toThrow(/WA_PAIRING_NUMBER/);
+  });
+
+  test("rejects an unknown pairing mode", () => {
+    expect(() =>
+      loadConfig({ ...VALID_ENV, WA_ENABLED: "true", WA_PAIRING_MODE: "telepathy" }),
+    ).toThrow(/WA_PAIRING_MODE/);
   });
 
   test("rejects a pairing number that is not digits", () => {
