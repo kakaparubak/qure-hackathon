@@ -16,12 +16,13 @@ export interface Wiring {
 export async function wire(config: Config, logger: (message: string) => void): Promise<Wiring> {
   const model = createDecisionModelClient(config.model);
 
-  const cutoffs = {
-    primaryId: config.model.primaryId,
-    fallbackId: config.model.fallbackId,
-    cutoffPrimary: config.model.cutoffPrimary,
-    cutoffFallback: config.model.cutoffFallback,
-  };
+  const slots = config.model.slots;
+
+  logger(
+    `decision model chain: ${slots
+      .map((slot) => `${slot.id} (cutoff ${slot.cutoff}, ceiling ${slot.urgencyCeiling})`)
+      .join(" -> ")}`,
+  );
 
   if (!config.whatsapp) {
     // Webhook-only: the pipeline is still fully exercised via curl. The fake
@@ -29,7 +30,7 @@ export async function wire(config: Config, logger: (message: string) => void): P
     // here should reach a patient.
     logger("WA_ENABLED is not 'true' - running webhook-only, no WhatsApp channel.");
     return {
-      orchestrator: createOrchestrator({ model, cutoffs, channel: new FakeChannel() }),
+      orchestrator: createOrchestrator({ model, slots, channel: new FakeChannel() }),
       channelMode: "none",
     };
   }
@@ -44,7 +45,7 @@ export async function wire(config: Config, logger: (message: string) => void): P
     logger,
   });
 
-  const orchestrator = createOrchestrator({ model, cutoffs, channel });
+  const orchestrator = createOrchestrator({ model, slots, channel });
   channel.onMessage((msg) => orchestrator.onInbound(msg));
 
   return { orchestrator, channelMode: "baileys" };

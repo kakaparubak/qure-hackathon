@@ -9,7 +9,7 @@ import { buildApp } from "./app";
  */
 const handleInbound = async (msg: InboundMessage) => ({
   phone: msg.phone,
-  text: TEMPLATES.routine,
+  text: TEMPLATES.intake,
   purpose: "reply" as const,
 });
 
@@ -41,7 +41,7 @@ describe("POST /webhook/inbound", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       ok: true,
-      reply: { phone: "628123456789", text: TEMPLATES.routine, purpose: "reply" },
+      reply: { phone: "628123456789", text: TEMPLATES.intake, purpose: "reply" },
     });
 
     await app.close();
