@@ -3,4 +3,9 @@
 // Layer 2: decision model (pplx primary, jev fallback) -> packages/core/src/decision-model/
 // Layer 3: selective routing (low confidence -> LLM turn)
 // Layer 4: flow control (intake / follow-up / human queue)
-export {};
+//
+// INVARIANT: every layer can only ESCALATE, never de-escalate. The decision
+// model cannot override the red-flag floor, and nothing can override an
+// explicit request for a human. Never refactor this property away.
+
+export * from "./contracts";
