@@ -139,17 +139,32 @@ rather than a `undefined` propagating into a fetch.
 
 | Variable | Purpose |
 |---|---|
-| `OPENROUTER_BASE_URL` | System One / OpenRouter base URL |
+| `OPENROUTER_ENDPOINT` | **full** chat-completions URL, path included |
 | `OPENROUTER_API_KEY` | bearer token |
 | `MODEL_PRIMARY_ID` | pplx-decider slug |
 | `MODEL_FALLBACK_ID` | jev slug |
 | `RED_FLAG_CUTOFF_PRIMARY` | `0.15` per CLAUDE.md |
 | `RED_FLAG_CUTOFF_FALLBACK` | `0.31` per CLAUDE.md |
+| `WA_ENABLED` | `true` to link a phone; otherwise webhook-only |
 | `WA_PAIRING_NUMBER` | E.164 number the pairing code is requested for |
+| `WA_AUTH_DIR` | where pairing credentials go; defaults to `.baileys` |
 | `PORT` | defaults to 3000 |
 
 Cutoffs are env-driven rather than constants so the values can be retuned
 during judging without a rebuild.
+
+Two changes from the first draft of this spec, both made while implementing:
+
+`OPENROUTER_BASE_URL` became `OPENROUTER_ENDPOINT` holding the **full** URL.
+Guessing a path suffix (`/chat/completions`) would have been a coin flip
+against a provider whose shape is not yet confirmed; a full URL is correct
+either way.
+
+`WA_ENABLED` was added. Without a gate, the process would load and connect
+Baileys unconditionally, so a broken Baileys install or an unreachable WhatsApp
+server would stop the API from booting — which contradicts this document's own
+risk mitigation that the webhook route keeps the pipeline provable.
+`WA_AUTH_DIR` came with it.
 
 ## Error handling
 
