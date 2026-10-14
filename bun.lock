@@ -16,6 +16,7 @@
         "@qure/core": "workspace:*",
         "@qure/db": "workspace:*",
         "fastify": "^5",
+        "zod": "^4.6.7",
       },
     },
     "packages/core": {

@@ -1,1 +1,14 @@
-{ "name": "@qure/api", "version": "0.0.1", "private": true, "scripts": { "dev": "bun run --hot src/index.ts" }, "dependencies": { "@qure/core": "workspace:*", "@qure/db": "workspace:*", "fastify": "^5" } }
+{
+  "name": "@qure/api",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "dependencies": {
+    "@qure/core": "workspace:*",
+    "@qure/db": "workspace:*",
+    "fastify": "^5",
+    "zod": "^4.6.7"
+  }
+}
