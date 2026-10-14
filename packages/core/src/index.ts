@@ -15,10 +15,13 @@
 
 export * from "./contracts";
 export * from "./config";
+export * from "./red-flag/patterns";
+export * from "./red-flag/floor";
 export * from "./channel/fake";
 export * from "./channel/rate-limit";
 export * from "./decision-model/types";
 export * from "./decision-model/client";
 export * from "./decision-model/fake";
+export * from "./reply/playbooks";
 export * from "./reply/templates";
 export * from "./triage/orchestrator";

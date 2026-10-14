@@ -2,36 +2,52 @@
  * Patient-facing Bahasa Indonesia replies.
  *
  * Deliberately plain strings, not generated text: a clinician can correct this
- * file without reading any other code. The conversational LLM replaces this
- * later; until then these are what actually reaches patients.
+ * file without reading any other code. The conversational LLM replaces the
+ * non-escalation branches later; until then these are what reaches patients.
+ *
+ * ESCALATION IS NOT A TEMPLATE. It is a three-part message built by
+ * playbooks.ts (acknowledgement + family playbook + safety closer), so the
+ * wording here only covers the four non-escalation branches.
  */
 
-export type ReplyKind = "emergency" | "urgent" | "routine" | "unclear";
+import type { RedFlagFamily } from "../red-flag/patterns";
+import { escalationText } from "./playbooks";
+
+export type ReplyKind = "escalation" | "intake" | "follow_up" | "text_only";
+
+export interface ReplyContext {
+  /** The family that fired, so escalation can pick the right playbook. */
+  family?: RedFlagFamily | null;
+  /** Patient age in months, when known. */
+  ageMonths?: number;
+}
 
 export const TEMPLATES: Record<ReplyKind, string> = {
-  emergency: [
-    "⚠️ Keluhan Anda bisa berbahaya dan perlu ditangani SEKARANG.",
-    "Segera ke IGD puskesmas atau rumah sakit terdekat, atau hubungi 119.",
-    "Minta bantuan orang lain untuk mengantar - jangan menyetir sendiri.",
-  ].join("\n"),
+  // The family-less escalation, i.e. the generic playbook. Kept here so the
+  // table stays a complete map; replyFor() overrides it per family.
+  escalation: escalationText(null),
 
-  urgent: [
-    "Terima kasih. Keluhan Anda perlu diperiksa hari ini.",
-    "Silakan datang ke puskesmas sekarang dan tunjukkan pesan ini di loket.",
-  ].join("\n"),
-
-  routine: [
+  intake: [
     "Terima kasih, keluhan Anda sudah kami catat.",
     "Silakan datang ke puskesmas pada jam buka dan tunjukkan pesan ini di loket",
     "untuk masuk antrean.",
   ].join("\n"),
 
-  unclear: [
-    "Maaf, kami belum memahami keluhan Anda.",
-    'Bisa dijelaskan lagi? Contoh: "demam 3 hari, batuk, dan sesak napas".',
+  follow_up: [
+    "Terima kasih. Kami perlu sedikit informasi lagi untuk menilai keluhan Anda.",
+    'Bisa dijelaskan: sejak kapan keluhannya, dan apakah ada keluhan lain? Contoh: "demam 3 hari, batuk, dan sesak napas".',
+  ].join("\n"),
+
+  text_only: [
+    "Maaf, untuk sementara kami hanya bisa membaca pesan teks.",
+    "Tolong ketik ya.",
   ].join("\n"),
 };
 
-export function replyFor(kind: ReplyKind): string {
+export function replyFor(kind: ReplyKind, context: ReplyContext = {}): string {
+  if (kind === "escalation") {
+    return escalationText(context.family ?? null, { ageMonths: context.ageMonths });
+  }
+
   return TEMPLATES[kind];
 }
