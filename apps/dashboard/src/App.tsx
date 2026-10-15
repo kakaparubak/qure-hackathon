@@ -1,0 +1,75 @@
+import { useState } from "react";
+import { QueueBoard } from "./components/QueueBoard";
+import { SessionDetailView } from "./components/SessionDetailView";
+import { ConnectionStatus } from "./components/ConnectionStatus";
+import { P1Alerts } from "./components/P1Alerts";
+import { ServeError } from "./components/ServeError";
+import { SoundToggle } from "./components/SoundToggle";
+import { DevPanel } from "./components/DevPanel";
+import { useQueueEvents } from "./useQueueEvents";
+import { useQueue } from "./useQueue";
+import { useP1Alerts } from "./useP1Alerts";
+import { useAlertSound } from "./useAlertSound";
+import { useServe } from "./useServe";
+import { useSelectedSession } from "./useSelectedSession";
+import { useNow } from "./useNow";
+import { USE_MOCK } from "./api";
+
+export default function App() {
+  const { status, lastEventAt, families } = useQueueEvents();
+  const { data, dataUpdatedAt } = useQueue(status !== "live");
+  const { alerts, dismiss } = useP1Alerts(data);
+  const sound = useAlertSound(alerts.length);
+  const { serve, failure, clearFailure } = useServe();
+  const { id: openId, open, close } = useSelectedSession();
+  const [restoreId, setRestoreId] = useState<string | null>(null);
+  const now = useNow();
+
+  const handleOpen = (id: string) => {
+    setRestoreId(id);
+    open(id);
+  };
+
+  // Waktu pembaruan terakhir = yang terbaru antara event SSE dan data antrean yang berhasil diambil/ditulis.
+  const times = [lastEventAt?.getTime() ?? 0, dataUpdatedAt].filter((t) => t > 0);
+  const lastUpdatedAt = times.length ? new Date(Math.max(...times)) : null;
+
+  return (
+    <main className="mx-auto max-w-3xl p-4 sm:p-6">
+      {/* Alert P1 dan galat "Layani" berbagi satu wadah lengket supaya tidak saling menimpa. */}
+      <div className="sticky top-0 z-10 mb-4 space-y-2 empty:hidden">
+        <P1Alerts alerts={alerts} rows={data} families={families} onDismiss={dismiss} />
+        <ServeError failure={failure} onDismiss={clearFailure} />
+      </div>
+      <header className="mb-4 space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-bold">Antrean pasien</h1>
+          <p className="text-base font-semibold tabular-nums">
+            {data ? `${data.length} pasien` : "—"}
+          </p>
+        </div>
+        <ConnectionStatus status={status} lastUpdatedAt={lastUpdatedAt} now={now} />
+        <SoundToggle enabled={sound.enabled} onEnable={sound.enable} onDisable={sound.disable} />
+      </header>
+
+      {openId ? (
+        <SessionDetailView
+          key={openId}
+          sessionId={openId}
+          queueRow={data?.find((r) => r.sessionId === openId)}
+          queueLoaded={data !== undefined}
+          now={now}
+          onBack={close}
+        />
+      ) : (
+        <QueueBoard
+          polling={status !== "live"}
+          onServe={serve}
+          onOpen={handleOpen}
+          restoreFocusId={restoreId}
+        />
+      )}
+      {USE_MOCK && <DevPanel />}
+    </main>
+  );
+}
