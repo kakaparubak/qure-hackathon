@@ -168,3 +168,12 @@ describe("loadConfig - validation", () => {
     expect(loadConfig(withoutPort).port).toBe(3000);
   });
 });
+
+test('intake uses a separate configurable chat endpoint and the existing key',()=>{
+  const defaults=loadConfig(VALID_ENV);
+  expect(defaults.llm.endpoint).toBe('https://openrouter.ai/api/v1/chat/completions');
+  expect(defaults.llm.modelId).toBe('openrouter/auto');
+  expect(defaults.llm.apiKey).toBe(defaults.model.apiKey);
+  const custom=loadConfig({...VALID_ENV,LLM_ENDPOINT:'https://example.test/chat',LLM_MODEL_ID:'provider/model'});
+  expect(custom.llm.modelId).toBe('provider/model');
+});

@@ -47,8 +47,7 @@ Both triage layers are live:
 Escalations send an acknowledgement, a first-aid playbook chosen by rule
 family, and a safety closer. None of that text is model-generated.
 
-Not built yet: Postgres persistence, the nurse dashboard, the conversational
-LLM rephrase turn (L3 currently asks a fixed follow-up), the queue engine, and
+Not built yet: the nurse dashboard, the queue engine, and
 the FHIR mapper. See `docs/superpowers/specs/` for the design.
 
 ## Run it
@@ -159,3 +158,44 @@ bun run typecheck  # strict TS across all packages
 
 Tests are colocated (`foo.test.ts` beside `foo.ts`) and run entirely against
 fakes, so `bun test` needs no credentials.
+
+### Durable chat records
+
+The running API requires `DATABASE_URL` in the root `.env` and the DB migrations
+applied. WhatsApp and HTTP messages now persist patients, active visit sessions,
+transcripts, decisions, and outbound reply intent. Escalation stays set on later
+turns; duplicate provider IDs remain suppressed after a restart. Delivered
+playbooks are logged after successful WhatsApp send. HTTP returns do not count as
+WhatsApp delivery. See [database delivery semantics](packages/db/README.md).
+
+### Conversational intake
+
+Non-emergency text now goes through an intake extraction LLM after triage. It
+understands answers in context and can capture several explicitly stated facts
+from one message. The backend validates supporting text, persists progress in
+`sessions.intake`, and asks one fixed Bahasa question at a time for name, age in
+years, complaint, duration, allergies, and current medications. It never invents
+a birth date from age or turns patient-reported medication text into advice.
+
+Every reply re-enters L1. Medical escalation interrupts intake; `petugas` or
+`bicara dengan petugas` requests immediate human handoff. After three consecutive
+unresolved answers to the same pending field, intake stops and flags human
+handoff. Successful answers reset that counter. Counters and fields survive a
+restart and remain isolated per session.
+
+`LLM_ENDPOINT` defaults to OpenRouter chat completions. `LLM_MODEL_ID` defaults
+to `openrouter/auto` with its low cost tier; set a specific chat model slug to
+pin it. The adapter reuses `OPENROUTER_API_KEY` and times out after six seconds.
+Timeouts, invalid JSON, or unavailable providers fall back to scripted direct
+answers. This is separate from the calibrated System One decision models.
+
+Patient-facing intake questions and all medical guidance remain backend-owned;
+the LLM only proposes extracted facts and a next-field hint. The backend owns
+field order, completeness, and escalation. Completion acknowledges the record;
+it does not issue a queue ticket or claim that a nurse has received an alert.
+A nurse queue/dashboard remains a separate next task.
+
+Try from a fresh visit: `Saya Budi, umur 62 tahun, batuk sudah 3 hari.` Then answer
+the allergy and medication questions. Use another account to check isolation.
+An already escalated session remains escalated; it will not restart routine
+intake just because the next message is benign.

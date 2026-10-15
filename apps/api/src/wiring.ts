@@ -1,3 +1,8 @@
+import { createDatabase, createPipelineStore, createRepository } from "@qure/db";
+import { createIntakeModel } from "@qure/core/intake/llm";
+import type { ReadQueue } from "./routes/queue";
+import { ConfigError } from "@qure/core/config";
+import { persistedPipeline } from "./persisted-pipeline";
 /**
  * Composition root. The only file that knows which implementations are live.
  */
@@ -9,11 +14,28 @@ import { createOrchestrator, type Orchestrator } from "@qure/core/triage/orchest
 
 export interface Wiring {
   orchestrator: Orchestrator;
+  readQueue: ReadQueue;
   /** "baileys" when a phone is linked, "none" when running webhook-only. */
   channelMode: "baileys" | "none";
+  close(): Promise<void>;
+}
+
+export function parseQueueServiceMinutes(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    throw new ConfigError("QUEUE_SERVICE_MINUTES must be a finite positive number");
+  }
+  return minutes;
 }
 
 export async function wire(config: Config, logger: (message: string) => void): Promise<Wiring> {
+  const serviceMinutes = parseQueueServiceMinutes(process.env.QUEUE_SERVICE_MINUTES);
+  const database = createDatabase(process.env.DATABASE_URL ?? "");
+  const repository = createRepository(database.db);
+  const readQueue: ReadQueue = () => repository.readQueueBoard(new Date(), serviceMinutes);
+  const intakeModel = createIntakeModel(config.llm);
+  const store = createPipelineStore(database.db, {intakeModel});
   const model = createDecisionModelClient(config.model);
 
   const slots = config.model.slots;
@@ -29,8 +51,12 @@ export async function wire(config: Config, logger: (message: string) => void): P
     // channel captures sends that nobody reads, which is the point - nothing
     // here should reach a patient.
     logger("WA_ENABLED is not 'true' - running webhook-only, no WhatsApp channel.");
+    const channel = new FakeChannel();
+    const core = createOrchestrator({ model, slots, channel, logger });
     return {
-      orchestrator: createOrchestrator({ model, slots, channel: new FakeChannel(), logger }),
+      close: database.close,
+      readQueue,
+      orchestrator: persistedPipeline(core, store, channel, logger),
       channelMode: "none",
     };
   }
@@ -46,8 +72,9 @@ export async function wire(config: Config, logger: (message: string) => void): P
     logger,
   });
 
-  const orchestrator = createOrchestrator({ model, slots, channel, logger });
+  const core = createOrchestrator({ model, slots, channel, logger });
+  const orchestrator = persistedPipeline(core, store, channel, logger);
   channel.onMessage((msg) => orchestrator.onInbound(msg));
 
-  return { orchestrator, channelMode: "baileys" };
+  return { orchestrator, readQueue, channelMode: "baileys", close:database.close };
 }

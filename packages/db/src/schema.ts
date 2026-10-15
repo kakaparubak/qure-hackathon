@@ -1,3 +1,4 @@
+import type { IntakeState } from "@qure/core/intake/engine";
 import {
   pgTable, pgEnum, uuid, varchar, text, boolean, integer, date,
   timestamp, jsonb, doublePrecision, uniqueIndex,
@@ -28,11 +29,13 @@ export const messageSender = pgEnum("message_sender",
 export const decisionLayer = pgEnum("decision_layer",
   ["red_flag_floor", "decision_model", "llm"]);
 export const redFlagFamily = pgEnum("red_flag_family", [
-  "cardiac", "stroke", "breathing", "consciousness", "bleeding_trauma",
-  "sepsis", "anaphylaxis", "pregnancy", "mental_health", "severe_pain_poisoning",
+  "cardiac", "stroke_fast", "breathing", "consciousness", "bleeding_trauma",
+  "sepsis_infection", "anaphylaxis", "pregnancy", "mental_health_crisis", "severe_pain_poisoning",
 ]);
 export const flowAction = pgEnum("flow_action",
   ["escalate", "queue", "follow_up", "green_lane", "close"]);
+
+export const clarity = pgEnum("clarity", ["crystal_clear", "mostly_clear", "ambiguous", "gibberish"]);
 
 // ---------- tables ----------
 export const patients = pgTable("patients", {
@@ -56,10 +59,12 @@ export const sessions = pgTable("sessions", {
   priority: triageTier("priority"),          // nullable, only escalates
   category: varchar("category"),
   reasonForVisit: text("reason_for_visit"),  // AI read, not a diagnosis
-  intake: jsonb("intake"),
+  intake: jsonb("intake").$type<IntakeState>(),
   wantsHuman: boolean("wants_human").notNull().default(false),
   isEmergency: boolean("is_emergency").notNull().default(false),
   assignedNurse: varchar("assigned_nurse"),
+  encounterId: varchar("encounter_id"),
+  checkInCount: integer("check_in_count").notNull().default(0),
   nextCheckIn: ts("next_check_in"),          // drives the check-in poller
   lastPatientMessageAt: ts("last_patient_message_at"),
   startedAt: ts("started_at").notNull().defaultNow(),
@@ -94,7 +99,6 @@ export const queueEntries = pgTable("queue_entries", {
   etaReason: varchar("eta_reason"),
   nursePagedAt: ts("nurse_paged_at"),
   lastCheckinAt: ts("last_checkin_at"),
-  checkinCount: integer("checkin_count").notNull().default(0),
   callbackSlot: ts("callback_slot"),         // green-lane callback
   joinedAt: ts("joined_at").notNull().defaultNow(),
   calledAt: ts("called_at"),
@@ -110,6 +114,7 @@ export const messages = pgTable("messages", {
   kind: messageKind("kind").notNull().default("text"),
   sender: messageSender("sender").notNull(),
   body: text("body").notNull().default(""),  // empty for non-text payloads
+  meta: jsonb("meta").$type<Record<string, unknown>>(),
   waMessageId: varchar("wa_message_id").unique(), // dedups retries
   createdAt: createdAt(),
 });
@@ -126,7 +131,8 @@ export const triageResults = pgTable("triage_results", {
   usedFallback: boolean("used_fallback").notNull().default(false),
   cutoffUsed: doublePrecision("cutoff_used"),
   scoreUrgency: doublePrecision("score_urgency"),            // 0-4 fractional
-  scoreClarity: doublePrecision("score_clarity"),
+  clarity: clarity("clarity"),
+  urgencyConfidence: doublePrecision("urgency_confidence"),
   scoreRedFlag: doublePrecision("score_red_flag"),
   scoreRedFlagInformal: doublePrecision("score_red_flag_informal"),
   scoreWantsHuman: doublePrecision("score_wants_human"),

@@ -16,12 +16,13 @@
  * that reads a red flag and replies with something calmer.
  */
 
-import type { Decision, InboundMessage, OutboundMessage, WhatsAppChannel } from "../contracts";
+import type { Decision, InboundMessage, OutboundMessage, WhatsAppChannel, TriageTier } from "../contracts";
 import type { ModelSlot } from "../config";
 import { slotFor } from "../config";
 import type { DecisionModel } from "../decision-model/types";
 import type { RedFlagFamily } from "../red-flag/patterns";
 import { scan } from "../red-flag/floor";
+import { HANDOFF_TEXT, requestsHuman } from "../intake/engine";
 import { replyFor, type ReplyKind } from "../reply/templates";
 
 /** Above this, a request for a human is honoured regardless of urgency. */
@@ -49,7 +50,21 @@ export interface OrchestratorDeps {
   logger?: (message: string) => void;
 }
 
+export interface TriageOutcome {
+  reply: OutboundMessage;
+  decision: Decision | null;
+  medicalEmergency: boolean;
+  reason: EscalationReason | null;
+  kind: ReplyKind;
+  tier: TriageTier;
+  cutoffUsed: number | null;
+  usedFallback: boolean;
+  family: RedFlagFamily | null;
+}
+
 export interface Orchestrator {
+  /** Pure assessment seam; persistence owns deduplication when using this method. */
+  assess(msg: InboundMessage): Promise<TriageOutcome>;
   handleInbound(msg: InboundMessage): Promise<OutboundMessage | null>;
   /** Registered on the channel; wires the transport to the loop. */
   onInbound(msg: InboundMessage): Promise<void>;
@@ -65,7 +80,8 @@ export type EscalationReason =
   | "urgency"
   | "red_flag"
   | "wants_human"
-  | "model_failure";
+  | "model_failure"
+  | "intake_handoff";
 
 /**
  * The L4 ladder, as a lookup rather than a chain of ifs.
@@ -191,18 +207,22 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
     return true;
   }
 
-  async function handleInbound(msg: InboundMessage): Promise<OutboundMessage | null> {
-    if (!remember(msg.providerMessageId)) return null;
+  async function assess(msg: InboundMessage): Promise<TriageOutcome> {
 
     // Non-text payloads get no triage at all: there is nothing to read, and a
     // decision invented from an empty string is worse than no decision.
     if (msg.kind !== "text" || msg.text.trim() === "") {
-      return { phone: msg.phone, text: replyFor("text_only"), purpose: "reply" };
+      return { reply: { phone: msg.phone, text: replyFor("text_only"), purpose: "reply" }, decision:null, medicalEmergency:false, reason:null, kind:"text_only", tier:null, cutoffUsed:null, usedFallback:false, family:null };
     }
 
     // L1. The floor answers without a network call, and on a hit nothing below
     // it runs.
     const verdict = scan(msg.text);
+    if (!verdict.hit && requestsHuman(msg.text)) {
+      return { reply:{phone:msg.phone,text:HANDOFF_TEXT,purpose:'reply'}, decision:null,
+        medicalEmergency:false,reason:'wants_human',kind:'escalation',tier:'P2',cutoffUsed:null,usedFallback:false,family:null };
+    }
+
 
     let decision: Decision;
     let family: RedFlagFamily | null = null;
@@ -227,6 +247,9 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
       reason ??= escalationReasonFor(decision, deps.slots);
     }
 
+    const medicalEmergency = verdict.hit || reason === 'model_failure' ||
+      (decision.urgency ?? 0) >= URGENCY_ESCALATION_THRESHOLD ||
+      decision.redFlag >= slotFor(deps.slots,decision.model).cutoff;
     const kind: ReplyKind = reason !== null ? "escalation" : replyKindFor(decision, deps.slots);
 
     deps.logger?.(
@@ -234,16 +257,23 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         (family ? ` family=${family}` : ""),
     );
 
-    return {
+    return { decision, medicalEmergency, reason, kind, family, cutoffUsed: decision.model ? slotFor(deps.slots, decision.model).cutoff : null, usedFallback: decision.model !== null && decision.model !== deps.slots[0]?.id, tier: reason === null ? null : verdict.hit ? verdict.tier : reason === "wants_human" && !medicalEmergency ? "P2" : "P1", reply: {
       phone: msg.phone,
-      text: replyFor(kind, { family }),
+      text: reason === "wants_human" && !medicalEmergency ? HANDOFF_TEXT : replyFor(kind, { family }),
       // An escalation that carries first-aid guidance is a playbook, not a
       // conversational reply - the distinction is what playbook_log records.
-      purpose: kind === "escalation" ? "playbook" : "reply",
-    };
+      purpose: kind === "escalation" && (reason !== "wants_human" || medicalEmergency) ? "playbook" : "reply",
+    } };
+  }
+
+  async function handleInbound(msg: InboundMessage): Promise<OutboundMessage | null> {
+    if (!remember(msg.providerMessageId)) return null;
+    try { return (await assess(msg)).reply; }
+    catch (error) { seen.delete(msg.providerMessageId); throw error; }
   }
 
   return {
+    assess,
     handleInbound,
 
     async onInbound(msg: InboundMessage): Promise<void> {

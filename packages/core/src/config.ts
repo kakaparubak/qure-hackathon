@@ -1,3 +1,4 @@
+import type { IntakeModelConfig } from "./intake/llm";
 /**
  * Environment loading for the API process.
  *
@@ -43,6 +44,7 @@ export interface WhatsAppConfig {
 
 export interface Config {
   model: ModelConfig;
+  llm: IntakeModelConfig;
   /** null when WhatsApp is not enabled; the webhook route still works. */
   whatsapp: WhatsAppConfig | null;
   port: number;
@@ -220,6 +222,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 
   return {
     model: modelConfig(env),
+    llm: {
+      endpoint: optional(env,'LLM_ENDPOINT') ?? 'https://openrouter.ai/api/v1/chat/completions',
+      apiKey: required(env,'OPENROUTER_API_KEY'),
+      modelId: optional(env,'LLM_MODEL_ID') ?? 'openrouter/auto',
+    },
     whatsapp: whatsappConfig(env),
     port: port(env),
   };

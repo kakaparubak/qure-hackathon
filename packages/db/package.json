@@ -1,1 +1,21 @@
-{ "name": "@qure/db", "version": "0.0.1", "private": true, "type": "module", "main": "src/index.ts", "dependencies": { "drizzle-orm": "latest" }, "devDependencies": { "drizzle-kit": "latest" }, "scripts": { "generate": "drizzle-kit generate", "migrate": "drizzle-kit migrate" } }
+{
+  "name": "@qure/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@qure/core": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "@electric-sql/pglite": "^0.3.14"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "bun --env-file=../../.env run ./node_modules/drizzle-kit/bin.cjs migrate",
+    "test": "bun test"
+  }
+}

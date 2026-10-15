@@ -1,3 +1,4 @@
+import { HANDOFF_TEXT } from "../intake/engine";
 import { describe, expect, test } from "bun:test";
 import { FakeChannel } from "../channel/fake";
 import type { ModelSlot } from "../config";
@@ -226,7 +227,7 @@ describe("createOrchestrator - the ladder", () => {
     );
 
     expect((await createOrchestrator(deps(model)).handleInbound(message()))?.text).toContain(
-      ACKNOWLEDGEMENT,
+      HANDOFF_TEXT,
     );
   });
 
@@ -362,4 +363,25 @@ describe("createOrchestrator - delivery", () => {
     // A fell out of the window, so it is answered again rather than dropped.
     expect(await orchestrator.handleInbound(message({ providerMessageId: "A" }))).not.toBeNull();
   });
+});
+
+
+test("explicit petugas command bypasses both classifiers, but chest pain still wins", async () => {
+  const model = new FakeDecisionModel(neutralDecision());
+  const orchestrator = createOrchestrator(deps(model));
+  const human = await orchestrator.assess(message({text:"petugas"}));
+  expect(human.reason).toBe("wants_human");
+  expect(human.reply.purpose).toBe("reply");
+  expect(model.calls).toBe(0);
+  const emergency = await orchestrator.assess(message({text:"nyeri dada, bicara dengan petugas"}));
+  expect(emergency.family).toBe("cardiac");
+  expect(model.calls).toBe(0);
+});
+
+test('medical emergency keeps its playbook when a human is requested too',async()=>{
+  const model = new FakeDecisionModel(neutralDecision({urgency:4,wantsHuman:0.9}));
+  const outcome=await createOrchestrator(deps(model)).assess(message());
+  expect(outcome.reason).toBe('wants_human');
+  expect(outcome.medicalEmergency).toBe(true);
+  expect(outcome.reply.purpose).toBe('playbook');
 });
