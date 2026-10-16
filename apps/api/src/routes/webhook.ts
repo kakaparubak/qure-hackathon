@@ -8,6 +8,7 @@
 
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { InboundMessage, OutboundMessage } from "@qure/core";
 
 const INBOUND_SCHEMA = z.object({
@@ -20,8 +21,13 @@ const INBOUND_SCHEMA = z.object({
 
 export type HandleInbound = (msg: InboundMessage) => Promise<OutboundMessage | null>;
 
-export function registerWebhookRoute(app: FastifyInstance, handleInbound: HandleInbound): void {
+export function registerWebhookRoute(app: FastifyInstance, handleInbound: HandleInbound, token?: string): void {
   app.post("/webhook/inbound", async (request, reply) => {
+    if (token) {
+      const provided = request.headers.authorization?.startsWith("Bearer ") ? request.headers.authorization.slice(7) : "";
+      const valid = timingSafeEqual(createHash("sha256").update(provided).digest(), createHash("sha256").update(token).digest());
+      if (!valid) return reply.code(401).send({ ok: false, error: "Unauthorized" });
+    }
     const parsed = INBOUND_SCHEMA.safeParse(request.body);
 
     if (!parsed.success) {

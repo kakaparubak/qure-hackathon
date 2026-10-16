@@ -1,0 +1,57 @@
+name: Deploy Qure to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qure-vps-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pushed revision
+        uses: actions/checkout@v4
+
+      - name: Sync and deploy over SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?Add VPS_HOST in repository Actions secrets}"
+          : "${VPS_USER:?Add VPS_USER in repository Actions secrets}"
+          : "${VPS_PORT:?Add VPS_PORT in repository Actions secrets}"
+          : "${VPS_SSH_KEY:?Add VPS_SSH_KEY in repository Actions secrets}"
+          : "${VPS_KNOWN_HOSTS:?Add VPS_KNOWN_HOSTS in repository Actions secrets}"
+
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_KEY" > "$HOME/.ssh/qure_vps"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/qure_vps" "$HOME/.ssh/known_hosts"
+
+          ssh_args="ssh -i $HOME/.ssh/qure_vps -p $VPS_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          ssh -i "$HOME/.ssh/qure_vps" -p "$VPS_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'mkdir -p ~/qure'
+
+          rsync -az \
+            --exclude='.git/' \
+            --exclude='node_modules/' \
+            --exclude='dist/' \
+            --exclude='.baileys/' \
+            --exclude='.env' \
+            --include='.env.example' \
+            --exclude='.env.*' \
+            -e "$ssh_args" \
+            ./ "$VPS_USER@$VPS_HOST:~/qure/"
+
+          ssh -i "$HOME/.ssh/qure_vps" -p "$VPS_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            'cd ~/qure && docker compose -f compose.yaml -f deploy/compose.public.yaml config --quiet && docker compose -f compose.yaml -f deploy/compose.public.yaml build qure && docker compose -f compose.yaml -f deploy/compose.public.yaml run --rm --no-deps qure scripts/migrate.ts && docker compose -f compose.yaml -f deploy/compose.public.yaml up -d --no-build qure'

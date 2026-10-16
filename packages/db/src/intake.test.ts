@@ -96,6 +96,18 @@ test('provider outage advances scripted direct-answer intake rather than a DB fa
   expect(saved.status).toBe('triaging');
 });
 
+test('status-only waiting-room check-in gets acknowledged without restarting symptom intake',async()=>{
+  const phone='628123456798';
+  let completed:Awaited<ReturnType<typeof send>>=null;
+  for(const text of ['Saya Rina','25','batuk','2 hari','tidak ada','tidak ada']) completed=await send(phone,text);
+  expect(completed).not.toBeNull();
+  expect((await session(completed!.sessionId)).status).toBe('waiting');
+  const status=(await send(phone,'saya aman saja'))!;
+  expect(status.outcome.reply.text).toContain('Terima kasih sudah memberi kabar');
+  expect(status.outcome.reply.text).not.toContain('Bisa dijelaskan');
+  expect((await session(status.sessionId)).status).toBe('waiting');
+});
+
 test('persisted injury conversation recovers omitted complaint after restart rather than falsely handing off',async()=>{
   const phone='628123456799';
   const [patient]=await db.insert(schema.patients).values({waNumber:phone}).returning();

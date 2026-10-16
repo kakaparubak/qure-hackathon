@@ -4,8 +4,9 @@ import type { ReadQueue, SessionReaders } from "./routes/queue";
 import { buildApp } from "./app";
 import { wire, type Wiring } from "./wiring";
 import { installShutdown } from "./shutdown";
+import { readDashboardCredentials } from "./dashboard-auth";
 
-export async function createServer(config:Config,wireRuntime:typeof wire=wire,logger=true) {
+export async function createServer(config:Config,wireRuntime:typeof wire=wire,logger=true,dashboardAuth?:ReturnType<typeof readDashboardCredentials>) {
 
   // The app is built before the pipeline exists so that wiring can log through
   // the app's own logger rather than reaching for the console. Requests that
@@ -17,6 +18,7 @@ export async function createServer(config:Config,wireRuntime:typeof wire=wire,lo
 
   const app = buildApp({
     logger,
+    dashboardAuth,
     readiness:async()=>wiring !== null && await wiring.ready(),
     readQueue: async () => {
       if (!readQueue) throw new Error("queue is still starting");
@@ -65,7 +67,8 @@ export async function createServer(config:Config,wireRuntime:typeof wire=wire,lo
 
 async function main() {
   const config=loadConfig(process.env);
-  const app=await createServer(config);
+  const dashboardAuth=readDashboardCredentials(process.env);
+  const app=await createServer(config,wire,true,dashboardAuth);
   const removeShutdown=installShutdown(app,process);
   app.addHook('onClose',async()=>{removeShutdown();});
   await app.listen({port:config.port,host:'0.0.0.0'});

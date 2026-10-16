@@ -1,0 +1,72 @@
+References from the Joints X UGM Notion pages
+Prepared October 16, 2026
+
+Scope note: Compiled from the “Sources” section of the Joints X UGM page and
+cross-checked against the Qure technical PRD. APA 7 ordering and punctuation
+are used. Plain-text files cannot render APA italics, so journal and volume
+italics are not visually represented here.
+
+References
+
+BPJS Kesehatan. (n.d.). Pelayanan program JKN: Panduan Mobile JKN.
+    https://bpjs-kesehatan.go.id/user-manual-mobile-jkn/pelayanan%20jkn.html
+
+Centers for Disease Control and Prevention. (n.d.). Signs and symptoms of
+    stroke. https://www.cdc.gov/stroke/signs-symptoms/index.html
+
+Chang, R., & Barnes, D. K. (2020, March 25). Some patients can’t wait:
+    Improving timeliness of emergency department care. PSNet, Agency for
+    Healthcare Research and Quality.
+    https://psnet.ahrq.gov/web-mm/some-patients-cant-wait-improving-timeliness-emergency-department-care
+
+Deußer, T., Sparrenberg, L., & Sifa, R. (2026). Evaluating and benchmarking
+    the System One model Jev [Preprint]. arXiv.
+    https://arxiv.org/abs/2609.37647
+
+Kementerian Kesehatan Republik Indonesia. (2018). Peraturan Menteri Kesehatan
+    Republik Indonesia Nomor 47 Tahun 2018 tentang pelayanan kegawatdaruratan.
+    JDIH Kementerian Kesehatan.
+    https://jdih.kemkes.go.id/documents/peraturan-menteri-kesehatan-nomor-47-tahun-2018
+
+Ministry of Health, Republic of Indonesia, Digital Transformation Office.
+    (n.d.). SATUSEHAT FHIR R4 Implementation Guide.
+    https://simplifier.net/guide/SATUSEHAT-FHIR-R4-Implementation-Guide/Home?version=current
+
+National Institute for Health and Care Excellence. (2025). Suspected sepsis in
+    people aged 16 or over: Recognition, assessment and early management
+    (NICE Guideline NG253). https://www.nice.org.uk/guidance/NG253
+
+TypeSafe AI. (n.d.). TypeSafe API documentation. https://api.typesafe.ai/redoc
+
+Likely matches for underspecified Notion entries
+
+The Notion page refers generally to “Indonesian puskesmas field studies,”
+“SIMPUS failure analyses,” and “waiting-time studies,” without giving complete
+citation details. The following appear relevant, but the Notion pages do not
+establish that these are the exact studies intended.
+
+Daniyanti, E. S., Moeljono, E., & Fahmi, M. F. (2024). Analysis of factors
+    contributing to the failure to utilize the Public Health Center Information
+    Management Systems (SIMPUS) at the Burneh Public Health Center. Medical
+    Technology and Public Health Journal, 8(1), 36–45.
+    https://doi.org/10.33086/mtphj.v8i1.4774
+
+Fitriana, B. R. D., Hidana, R., & Parinduri, S. K. (2020). Analisis penerapan
+    Sistem Informasi Manajemen Puskesmas (SIMPUS) dengan model Human
+    Organization Technology (HOT)-Fit di Puskesmas Tanah Sareal Kota Bogor
+    tahun 2019. PROMOTOR: Jurnal Mahasiswa Kesehatan Masyarakat, 3(1), 18–27.
+    https://doi.org/10.32832/pro.v3i1.3121
+
+Indrawati, S., & Madarja, E. R. (2022). Lean healthcare improvement model
+    using simulation-based Lean Six-Sigma and TRIZ. Mathematical Modelling of
+    Engineering Problems, 9(3), 849–855. https://doi.org/10.18280/mmep.090335
+
+Items to resolve against the original research notes
+
+- The Notion phrase “20–58 minute waiting-time studies” does not identify the
+  paper or papers behind that range. The Indrawati and Madarja (2022) study is
+  a relevant West Java puskesmas Lean Six-Sigma study, but it does not identify
+  the unspecified studies behind the full range.
+- “TypeSafe docs” is listed without a specific page. The API documentation
+  above is the general documentation entry; the independently evaluated Jev
+  preprint is listed separately.

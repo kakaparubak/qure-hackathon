@@ -1,0 +1,12 @@
+# Optional overlay when an existing host Caddy container fronts Qure.
+# Set QURE_PROXY_NETWORK to Caddy's Docker network in the VPS .env.
+name: qure
+services:
+  qure:
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: ${QURE_PROXY_NETWORK:-vaultwarden_default}

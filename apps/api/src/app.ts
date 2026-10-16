@@ -6,6 +6,7 @@ import { registerQueueRoute, type ReadQueue, type SessionReaders } from "./route
 import { registerEventsRoute } from "./routes/events";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerWebhookRoute, type HandleInbound } from "./routes/webhook";
+import { registerDashboardAuth, type DashboardCredentials } from "./dashboard-auth";
 
 export interface AppDeps {
   /** The orchestrator's handleInbound. Injected so tests need no network. */
@@ -18,11 +19,14 @@ export interface AppDeps {
   sessions?: SessionReaders;
   /** Override built asset directory for isolated hosts/tests. */
   dashboardRoot?: string;
+  dashboardAuth?: DashboardCredentials;
 }
 
 /** Build the Fastify app without binding a port (testable). */
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({ logger: deps.logger ?? false });
+
+  if (deps.dashboardAuth) registerDashboardAuth(app, deps.dashboardAuth);
 
   app.get("/health", async () => ({ ok: true, service: "qure-api" }));
 
@@ -32,7 +36,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(503).send({ok:false});
   });
 
-  registerWebhookRoute(app, deps.handleInbound);
+  registerWebhookRoute(app, deps.handleInbound, deps.dashboardAuth?.inboundWebhookToken);
   registerQueueRoute(app, deps.readQueue, deps.sessions);
   registerEventsRoute(app, deps.readQueue);
 

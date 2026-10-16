@@ -38,3 +38,4 @@ services:
         max-file: "3"
 volumes:
   baileys_session:
+

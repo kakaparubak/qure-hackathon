@@ -130,6 +130,18 @@ test('a bare negation answers allergies and medications without the model',async
   expect(allergies.state.attempts).toBe(0);
 });
 
+test('“belum ada” resolves the current-medication question even when extraction misses it',async()=>{
+  const state={...emptyIntake(),fields:{name:'Kaka',ageYears:19,complaint:'demam dan sakit kepala',duration:'sejak kemarin',allergies:'tidak ada'},awaiting:'medications' as const};
+  const turn=await advanceIntake({state,text:'belum ada',history:[{role:'assistant',content:'Terakhir, apakah sedang rutin minum obat tertentu?' }],model:{
+    extract:async()=>({updates:{},nextField:'medications'}),
+    respond:async()=>'Obat apa yang sedang digunakan pasien? Jika tidak ada, tulis “tidak ada”.',
+  }});
+  expect(turn.state.fields.medications).toBe('tidak ada');
+  expect(turn.state.status).toBe('complete');
+  expect(turn.text).toBe(COMPLETE_TEXT);
+  expect(turn.replyFallbackReason).toBeNull();
+});
+
 test('"tidak tahu" stays unresolved on the allergies question',async()=>{
   const base = { ...emptyIntake(), fields: { name: 'Kaka', ageYears: 18, complaint: 'mual', duration: 'kemarin' } };
   const turn = await advanceIntake({ state: { ...base, awaiting: 'allergies', attempts: 2 }, text: 'tidak tahu', history: [],

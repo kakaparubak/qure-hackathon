@@ -12,8 +12,13 @@ import { useAlertSound } from "./useAlertSound";
 import { useSelectedSession } from "./useSelectedSession";
 import { useNow } from "./useNow";
 import { USE_MOCK } from "./api";
+import { AuthGate } from "./AuthGate";
 
 export default function App() {
+  return <AuthGate><QueueDashboard /></AuthGate>;
+}
+
+function QueueDashboard() {
   const { status, lastEventAt, families } = useQueueEvents();
   const { data, dataUpdatedAt } = useQueue(status !== "live");
   const { alerts, dismiss } = useP1Alerts(data);
@@ -40,9 +45,7 @@ export default function App() {
       <header className="mb-4 space-y-2">
         <div className="flex items-baseline justify-between gap-3">
           <h1 className="text-2xl font-bold">Antrean pasien</h1>
-          <p className="text-base font-semibold tabular-nums">
-            {data ? `${data.length} pasien` : "—"}
-          </p>
+          <div className="flex items-center gap-3"><p className="text-base font-semibold tabular-nums">{data ? `${data.length} pasien` : "—"}</p><button onClick={() => window.dispatchEvent(new Event("qure:logout"))} className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-medium">Keluar</button></div>
         </div>
         <ConnectionStatus status={status} lastUpdatedAt={lastUpdatedAt} now={now} />
         <SoundToggle enabled={sound.enabled} onEnable={sound.enable} onDisable={sound.disable} />

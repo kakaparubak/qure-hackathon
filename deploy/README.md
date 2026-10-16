@@ -46,9 +46,12 @@ docker compose config --quiet
 docker compose build
 ```
 
-Fill in `DATABASE_URL`, `OPENROUTER_API_KEY`, model IDs/cutoffs and
-`WA_PAIRING_NUMBER`. Set `WA_ENABLED=true`; `WA_PAIRING_MODE=code` is convenient
-over SSH. Preserve the measured cutoffs (currently primary 0.15/fallback 0.31).
+Fill in `DATABASE_URL`, `OPENROUTER_API_KEY`, model IDs/cutoffs,
+`WA_PAIRING_NUMBER`, and `DASHBOARD_PASSWORD` (at least 12 unique characters).
+Keep `DASHBOARD_USERNAME=admin` or choose another username. Generate the inbound
+adapter token with `openssl rand -hex 32` and set `INBOUND_WEBHOOK_TOKEN`.
+Set `WA_ENABLED=true`; `WA_PAIRING_MODE=code` is convenient over SSH. Preserve
+the measured cutoffs (currently primary 0.15/fallback 0.31).
 Optional z.ai and queue/check-in settings work as in local development.
 
 Compose reads the service environment as raw `KEY=value`: **do not surround values
@@ -57,6 +60,11 @@ special characters in database URLs. Environment values are injected only at
 runtime, never during the image build. Compose fixes the internal port to 3000
 and overrides `WA_AUTH_DIR` to the named volume at `/data/baileys`; leave those
 container paths alone. Never print resolved Compose config containing secrets.
+The dashboard requires login before its API can be read or changed. Login uses
+an HttpOnly, SameSite cookie, expires after 12 hours, and rate-limits failed
+attempts. The dashboard password must not be `admin123`; set a unique password
+before public access. The custom `/webhook/inbound` adapter also requires
+`Authorization: Bearer <INBOUND_WEBHOOK_TOKEN>`.
 
 ## 3. Apply migrations explicitly
 
@@ -114,6 +122,45 @@ Compose bind address to `0.0.0.0` to obtain access; SSH already provides it.
 
 ## Updates, persistence and resource limits
 
+### Deploy automatically when `main` is pushed
+
+The repository workflow at `.github/workflows/deploy-vps.yml` syncs each pushed
+`main` revision to `~/qure`, rebuilds the app on the VPS, applies pending checked-in
+migrations, and recreates the container. It preserves the VPS `.env` and the
+WhatsApp session volume. The VPS user must be able to run Docker Compose. The
+workflow uses the existing Caddy network overlay, so keep `QURE_PROXY_NETWORK`
+set in the VPS `.env`.
+
+Add these repository Actions secrets under **Settings → Secrets and variables →
+Actions**:
+
+- `VPS_HOST`: your VPS IP or SSH hostname.
+- `VPS_USER`: the Linux user that owns `~/qure` and can run Docker, such as `abdel`.
+- `VPS_PORT`: SSH port, usually `22`.
+- `VPS_SSH_KEY`: a dedicated private Ed25519 key for deployments.
+- `VPS_KNOWN_HOSTS`: the VPS host-key line from `ssh-keyscan`, verified against
+  the VPS host-key fingerprint through a trusted connection.
+
+Create a dedicated key on your computer and install only its public half for the
+deployment account (keep the private half out of the repository):
+
+```sh
+ssh-keygen -t ed25519 -N '' -C "qure-github-deploy" -f ~/.ssh/qure_github_deploy
+ssh-copy-id -i ~/.ssh/qure_github_deploy.pub -p 22 abdel@YOUR_VPS_HOST
+ssh-keyscan -p 22 -H YOUR_VPS_HOST
+```
+
+Copy the private key file contents into `VPS_SSH_KEY`; copy the verified
+`ssh-keyscan` output into `VPS_KNOWN_HOSTS`. If the SSH port is not 22, use the
+actual port in both commands. Then commit and push this workflow to `main`.
+GitHub Actions will show each deploy under the repository’s **Actions** tab. A
+failed build or migration stops the workflow before container replacement.
+
+If your VPS directory does not yet contain the current application files, this
+first run populates it while leaving `.env` and other excluded VPS data intact.
+
+### Manual updates
+
 ```sh
 # After transferring/pulling changed source:
 docker compose build
@@ -134,6 +181,13 @@ recreate the container. The root filesystem is read-only; auth state and a 64 Mi
 stops queue/check-in workers, closes SSE/WhatsApp and the DB, preserving login
 credentials; Docker allows 45 seconds before a forced stop. Uncertain outbound
 sends still require reconciliation, as in local operation.
+
+For an existing host Caddy container, add `QURE_PROXY_NETWORK=vaultwarden_default`
+to `.env` and use `-f compose.yaml -f deploy/compose.public.yaml` for Compose
+commands. Set the value to the Docker network shown by `docker inspect caddy`.
+Caddy can then proxy to `qure:3000` while the published app port stays bound to
+VPS localhost. Add a separate site block for the Qure hostname and reload Caddy;
+keep the existing site's block unchanged.
 
 For a consistent credential backup, stop the bot, copy `/data/baileys` with
 `docker compose cp` to a private directory **outside the repository**, then start

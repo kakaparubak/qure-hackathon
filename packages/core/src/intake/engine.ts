@@ -245,6 +245,14 @@ export async function advanceIntake(input:{state:IntakeState;text:string;history
     const bare=/^(?:tidak|gak|nggak|tdk|enggak)(?:\s+(?:ada|punya|alergi|obat|makanan|Obat))?[\s!.,?]*$/i.test(input.text.trim());
     if (bare && updates[state.awaiting] === undefined) updates[state.awaiting]='tidak ada';
   }
+  // Patients commonly answer the final medication question with “belum ada”
+  // or “nggak ada obat”. These are clear statements that they take no current
+  // medication; don't make them repeat the answer just because extraction
+  // returned no structured update.
+  if (state.awaiting === 'medications' && updates.medications === undefined &&
+      /^(?:(?:saya|pasien)\s+)?(?:(?:saat ini|sekarang)\s+)?(?:(?:belum|tidak|gak|nggak|enggak|tdk)\s+ada(?:\s+(?:obat|obatnya|obat-obatan|obat obatan|obatan|yang diminum|yang dikonsumsi))?|(?:belum|tidak|gak|nggak|enggak|tdk)\s+(?:minum|menggunakan|konsumsi)\s+obat)[.!?,\s]*$/i.test(input.text.trim())) {
+    updates.medications='tidak ada';
+  }
   // 2) A bare number ("19", "19 tahun") answering the age question.
   if (state.awaiting === 'ageYears') {
     const match=input.text.trim().match(/^(\d{1,3})\s*(?:tahun|thn)?[\s!.,?]*$/i);

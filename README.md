@@ -369,3 +369,4 @@ one-time WhatsApp pairing and the SSH tunnel. `compose.yaml` preserves the linke
 session in a named volume, caps memory, probes readiness and restarts process
 failures. It binds only to VPS localhost and builds the dashboard in live mode.
 No local `.env` or default Baileys credentials are included in the image.
+Before public access, configure the required dashboard password and inbound webhook token in `.env`; the dashboard API requires login.

@@ -4,7 +4,7 @@ import type { InboundMessage } from '@qure/core';
 import type { TriageOutcome } from '@qure/core/triage/orchestrator';
 import { advanceIntake, readIntake, HANDOFF_TEXT, type IntakeModel, type IntakeTurn } from '@qure/core/intake/engine';
 import { emergencyReply, type EmergencyModel } from '@qure/core/emergency/engine';
-import { DEFAULT_CHECK_IN_OPTIONS, nextCheckInAt, validateCheckInOptions, type CheckInOptions } from '@qure/core/check-in/policy';
+import { CHECK_IN_ACK_TEXT, DEFAULT_CHECK_IN_OPTIONS, isStatusOnlyCheckInReply, nextCheckInAt, validateCheckInOptions, type CheckInOptions } from '@qure/core/check-in/policy';
 import { replyFor } from '@qure/core/reply/templates';
 import { playbookFor, PLAYBOOK_VERSION } from '@qure/core/reply/playbooks';
 import { ticketReplyText } from '@qure/core/queue/tickets';
@@ -175,6 +175,12 @@ export function createPipelineStore<T extends PgQueryResultHKT>(db:PgDatabase<T,
           } else if(!escalated && session.status === 'green_lane' && outcome.kind !== 'text_only') {
             const [entry]=await tx.select().from(schema.queueEntries).where(eq(schema.queueEntries.sessionId,session.id));
             if(entry?.callbackSlot) outcome.reply={phone:msg.phone,text:callbackText(entry.callbackSlot),purpose:'queue_update'};
+          }
+          // A check-in answer such as “saya aman saja” is only a status update,
+          // not a new complaint and never evidence that the patient is safe.
+          // Triage has already run above, so any escalation still takes priority.
+          if(!escalated && session.status === 'waiting' && msg.kind === 'text' && isStatusOnlyCheckInReply(msg.text)) {
+            outcome.reply={phone:msg.phone,text:CHECK_IN_ACK_TEXT,purpose:'reply'};
           }
 
           // Queue entry, in the same transaction as the decision. Escalations
