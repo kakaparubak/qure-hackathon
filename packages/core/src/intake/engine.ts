@@ -55,10 +55,14 @@ export interface IntakeModel {
 /**
  * Guard for model-written replies. The voice may vary; the lane may not.
  * Rejects anything long enough to be an essay, anything that is not a
- * question while fields remain, and anything that smells like the model
- * practicing medicine - advice, reassurance about danger, or triage language.
+ * question while fields remain, false reassurance that could clear risk, and
+ * medication choices or doses. General low-risk self-care and empathy are OK.
  */
-const REPLY_FORBIDDEN = /\b(aspirin|paracetamol|antibiotik|dosis|\d+\s*mg|jangan khawatir|tenang saja|berbahaya|aman|jangan panik|segera ke igd|hubungi 119|darurat|prioritas|gawat darurat)\b/i;
+// Allow empathetic reassurance and ordinary self-care guidance, but never
+// falsely clear the patient or discourage needed in-person care. Medication
+// choices and doses remain outside this conversational intake assistant.
+const REPLY_FORBIDDEN = /\b(aspirin|paracetamol|antibiotik|dosis|\d+\s*mg|prioritas)\b/i;
+const REPLY_FALSE_REASSURANCE = /\b(?:pasti\s+)?(?:aman|tidak berbahaya|bukan\s+(?:keadaan\s+)?darurat|tidak perlu (?:ke dokter|diperiksa|ke rumah sakit|ke igd)|nggak perlu (?:ke dokter|diperiksa|ke rumah sakit|ke igd)|gak perlu (?:ke dokter|diperiksa|ke rumah sakit|ke igd))\b/i;
 const FIELD_QUESTIONS:Record<IntakeField,RegExp> = {
   name:/\b(nama\w*|dipanggil|panggilan|sebut(?:kan)?)\b/i,
   ageYears:/\b(umur\w*|usia\w*|berusia|tahun)\b/i,
@@ -70,7 +74,7 @@ const FIELD_QUESTIONS:Record<IntakeField,RegExp> = {
 export function validReply(text:string, awaiting?:IntakeField|null):boolean {
   if (text.length < 8 || text.length > 600) return false;
   if (!text.includes('?')) return false;
-  if (REPLY_FORBIDDEN.test(text)) return false;
+  if (REPLY_FORBIDDEN.test(text) || REPLY_FALSE_REASSURANCE.test(text)) return false;
   // Asking what a patient takes is intake, not an instruction to take it.
   // Keep rejecting medication instructions, including those after a question.
   const sentences=text.match(/[^.!?\n]+[.!?]?/g) ?? [];

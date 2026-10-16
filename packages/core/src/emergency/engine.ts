@@ -6,7 +6,7 @@ import type { RedFlagFamily } from '../red-flag/patterns';
 
 export const EMERGENCY_ROUTE = 'Hubungi 119 sekarang untuk bantuan medis darurat dan ikuti arahan operator. Jangan menunggu balasan chat atau petugas puskesmas.';
 export const ACTIONS = {
-  support: {text:'Saya akan membantu menyampaikan langkah pertolongan awal lewat chat. Chat ini tidak dapat memastikan penyebab keluhan atau menggantikan pertolongan medis langsung.', family:null},
+  support: {text:'Saya paham situasi ini bisa terasa menakutkan. Saya akan membantu lewat chat sambil Anda mencari bantuan medis langsung; chat ini tidak bisa memastikan penyebab keluhan.', family:null},
   companion: {text:'Minta orang terdekat menemani dan membantu menghubungi layanan darurat.', family:null},
   unavailable: {text:'Saya tidak bisa memastikan kapan petugas tersedia atau apakah bantuan sudah dikirim. Jika 119 tidak tersambung, minta orang terdekat membantu menghubungi IGD terdekat.', family:null},
   medication: {text:'Saya tidak dapat menentukan obat atau dosis yang aman untuk keadaan darurat lewat chat. Tanyakan langsung kepada operator 119 atau tenaga medis; beri tahu obat yang sudah digunakan dan alergi Anda.', family:null},

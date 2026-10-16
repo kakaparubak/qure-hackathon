@@ -4,8 +4,10 @@ The first emergency reply stays a local, fixed playbook. Subsequent patient text
 while no staff member owns the session, uses a separate LLM to select up to two
 entries and one question from engine.ts. The model cannot author clinical prose,
 set priority, diagnose, prescribe, clear an emergency, or promise dispatched help.
-An invalid, truncated or unavailable provider tries the next provider, then falls
-back to local support. Each provider has a four-second request timeout.
+An invalid, truncated or unavailable provider tries the next provider, then
+retries the fallback up to three total LLM attempts before using local support.
+Each attempt has a five-second timeout. The emergency route and selected
+guidance remain local and deterministic even while a provider is retried.
 
 The server retains all previous red-flag families from the current session.
 A new family gets an immediate static playbook. Multiple families allow only

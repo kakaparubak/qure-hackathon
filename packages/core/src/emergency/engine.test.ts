@@ -9,6 +9,12 @@ test('emergency support renders selected guidance with unconditional direct-help
   expect(result.text).toContain('Apakah ada orang');
   expect(result.audit.usedFallback).toBe(false);
 });
+test('emergency replies can reassure emotionally without saying the patient is safe',async()=>{
+  const result=await emergencyReply({...cardiac,text:'saya takut sekali'}, {plan:async()=>({actionIds:['support','companion'],questionId:'companion'})});
+  expect(result.text).toContain('Saya paham situasi ini bisa terasa menakutkan.');
+  expect(result.text).toContain('Hubungi 119 sekarang');
+  expect(result.text).not.toMatch(/Anda aman|kondisi Anda tidak berbahaya/i);
+});
 test('family context constrains advice and multiple families use common guidance only',()=>{
   expect(allowedActions(['bleeding_trauma'])).toContain('pressure');
   expect(allowedActions(['cardiac'])).not.toContain('pressure');

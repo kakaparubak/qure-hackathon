@@ -96,15 +96,20 @@ test('a reply without a question mark falls back to the template', async () => {
   expect(turn.text).toContain('Boleh tahu nama Anda?');
 });
 
-test('a reply that gives advice or reassurance is rejected', async () => {
-  const mid = { ...emptyIntake(), fields: { name: 'Budi' }, awaiting: 'complaint' as const };
-  const turn = await advanceIntake({ state: mid, text: 'perut sakit', history: [],
+test('allows empathetic reassurance and basic self-care guidance while rejecting false safety claims', async () => {
+  const mid = { ...emptyIntake(), fields: { name: 'Budi', complaint: 'batuk' }, awaiting: 'duration' as const };
+  const guided = await advanceIntake({ state: mid, text: 'batuk saya mengganggu, harus bagaimana?', history: [],
     model: { extract: async () => ({ updates: {}, nextField: null }),
-             respond: async () => 'Jangan khawatir ya, bukan darurat. Sudah minum obat apa belum?' } });
-  expect(turn.state.fields.complaint).toBe('perut sakit');
-  expect(turn.state.awaiting).toBe('ageYears');
-  expect(turn.text).toContain('umur');
-  expect(turn.text).not.toContain('Jangan khawatir');
+             respond: async () => 'Saya paham batuknya mengganggu. Coba istirahat, cukup minum, dan perhatikan bila napas terasa makin sulit. Sejak kapan batuknya?' } });
+  expect(guided.text).toContain('Saya paham');
+  expect(guided.text).toContain('cukup minum');
+  expect(guided.replyFallbackReason).toBeNull();
+
+  const unsafe = await advanceIntake({ state: mid, text: 'perut sakit', history: [],
+    model: { extract: async () => ({ updates: {}, nextField: null }),
+             respond: async () => 'Jangan khawatir, keluhan ini pasti aman dan bukan darurat. Sejak kapan sakitnya?' } });
+  expect(unsafe.text).toContain('Sejak kapan');
+  expect(unsafe.text).not.toContain('pasti aman');
 });
 
 test('the completion text is never model-written', async () => {
@@ -205,6 +210,8 @@ test('reply validation distinguishes medication questions from instructions and 
     expect(validReply(reply)).toBe(false);
   }
   expect(validReply('Alergi sudah dicatat. Sedang konsumsi obat apa?', 'allergies')).toBe(false);
+  expect(validReply('Saya paham ini terasa mengkhawatirkan. Coba beristirahat dan amati apakah keluhannya berubah. Sejak kapan sakitnya?', 'duration')).toBe(true);
+  expect(validReply('Anda pasti aman dan tidak perlu diperiksa. Sejak kapan sakitnya?', 'duration')).toBe(false);
 });
 
 test('reply fallback reports validation and provider failures independently of extraction',async()=>{
