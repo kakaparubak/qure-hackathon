@@ -1,372 +1,201 @@
+<div align="center">
+
 # Qure!
 
-WhatsApp triage assistant for Indonesian puskesmas. Patients chat; AI triages; emergencies jump the queue; nurses get structured records.
+**A WhatsApp triage and intake assistant for Indonesian community health centers.**
 
-> Mobile JKN books the queue. Qure! triages, structures, and escalates the patient before they reach it.
+Qure! helps patients describe their symptoms, routes potential emergencies for
+priority review, and gives clinic staff a live view of the waiting queue.
 
-**Joints X UGM hackathon - healthcare subtheme.** Team source of truth: Notion page "Joints X UGM".
+![Bun](https://img.shields.io/badge/runtime-Bun_1.4.3-000000?logo=bun)
+![TypeScript](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)
+[![CI](https://github.com/kakaparubak/qure-hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/kakaparubak/qure-hackathon/actions/workflows/ci.yml)
 
-## What works today
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Safety](#safety-and-limitations) · [Deployment](deploy/README.md)
 
-A patient's WhatsApp message is triaged and a Bahasa Indonesia reply is sent
-back. The same pipeline is reachable over HTTP, so it can be demonstrated by
-`curl` without a linked phone.
+</div>
 
-Verified end to end on a real phone: an emergency message returned the cardiac
-playbook with the decision model never called, an ambiguous message got the
-follow-up question, and a routine request reached intake. Each is one line in
-the log:
+> [!WARNING]
+> **Experimental hackathon project.** Qure! is not a medical device and is not
+> validated for clinical use. Do not rely on it for diagnosis, treatment, or
+> emergency response. Use synthetic data for development and demonstrations.
+> The Baileys WhatsApp integration is unofficial and intended for demos.
 
+## Why Qure!
+
+Patients often arrive at a community health center without a structured account
+of what is wrong. Qure! collects an initial history over WhatsApp, identifies
+messages that need urgent human review, and gives staff a shared queue and
+conversation view.
+
+This project was built for the Joints X UGM hackathon, healthcare subtheme. Its
+design favors escalation when uncertain: automation can raise urgency, but it
+cannot remove an emergency flag or replace a clinician.
+
+## Features
+
+- **Bahasa Indonesia WhatsApp intake** with context-aware symptom and history
+  collection.
+- **Escalate-only triage** with a local red-flag rules layer ahead of model
+  assessment.
+- **Emergency support** with fixed first-aid guidance and direct emergency
+  service instructions.
+- **Staff dashboard** for the live queue, patient conversations, and staff
+  takeover, with automation paused during staff care.
+- **Persistent visits and queue tickets** backed by PostgreSQL and Drizzle.
+- **Waiting-room operations** including scheduled check-ins, surge notices, and
+  opt-in callback slots.
+- **FHIR R4 visit export** for structured interoperability experiments.
+- **Private VPS deployment** using Docker Compose and SSH tunneling.
+
+## How it works
+
+```mermaid
+flowchart LR
+    P[Patient on WhatsApp] --> I[Inbound message]
+    I --> F{Local red-flag floor}
+    F -->|Match| E[Emergency playbook and priority queue]
+    F -->|No match| D[Decision model]
+    D --> T{Route}
+    T -->|Unclear| Q[Ask a follow-up]
+    T -->|Routine| A[Conversational intake]
+    A --> DB[(PostgreSQL)]
+    E --> DB
+    DB --> N[Nurse dashboard]
+    N -->|Staff takes over| S[Staff replies; automation pauses]
 ```
-triage 6285190013636: source=red_flag_floor reason=red_flag_floor kind=escalation family=cardiac
-triage 6285190013636: source=decision_model reason=none kind=follow_up
-triage 6285190013636: source=decision_model reason=none kind=intake
-```
 
-That `source=` field is the audit trail. `red_flag_floor` means the model was
-never consulted - the property the whole safety argument rests on, visible on a
-live channel rather than only in tests.
+The red-flag floor is deterministic, local, and runs before model assessment.
+When it matches, the triage model is skipped. Otherwise, the decision model
+assesses urgency and intent, then the backend chooses the next step. Intake
+models can extract only patient-supported facts and write conversational
+replies; the backend controls stored fields, completeness, queue placement, and
+escalation.
 
-```
-phone -> Baileys channel ─┐
-                          ├─> orchestrator ─> L1 red-flag floor ─┬─ hit ─> playbook, no model call
-POST /webhook/inbound ────┘                                     └─ miss ─> L2 decision model ─> L3/L4 flow
-```
+When a patient asks what to do during routine intake, the reply model may offer
+brief, general self-care guidance and empathetic support. It must not diagnose,
+recommend medication or doses, or tell someone that they are safe. Intake reply
+generation tries the configured models up to three times (15 seconds for the
+first attempt, then 10 seconds for each retry) before using a fixed question.
 
-Both triage layers are live:
+Emergency messages receive a deterministic playbook and emergency-service
+instructions. Later emergency replies select from a bounded support catalog;
+they do not generate free-form treatment. A supportive response may acknowledge
+fear without claiming that the patient is safe. The first emergency reply does
+not wait for an LLM. Follow-up guidance selection tries up to three provider
+requests before using the local catalog fallback.
 
-- **L1, the red-flag floor** - a plain pattern table, ten rule families, no
-  network, no dependencies. On a hit the decision model is never called. It
-  covers formal and colloquial Bahasa, and it is tuned for recall over
-  precision: over-firing costs a nurse one extra glance, under-firing costs a
-  life.
-- **L2, the decision model** - one System One request asking six questions at
-  once (urgency, clarity, red_flag, red_flag_informal, wants_human, category),
-  against a chain of models with per-model cutoffs and urgency ceilings.
-  Urgency ≥ 3 escalates independently. A red-flag cutoff crossing also requires
-  urgency ≥ 2 or informal red-flag probability ≥ 0.5. Floor hits bypass this
-  gate. Ambiguous/gibberish clarity triggers follow-up after escalation checks;
-  urgency confidence is recorded but does not control routing.
+## Quick start
 
-Escalations send an acknowledgement, a first-aid playbook chosen by rule
-family, and an immediate 119 safety closer. None of that text is model-generated.
-Follow-up emergency text uses a separate LLM to select relevant, fixed first-aid
-support and one focused question while staff have not taken over. The model cannot
-diagnose, prescribe, author treatment, or clear the emergency. See
-[emergency conversation](packages/core/src/emergency/README.md) for scope and sources.
+### Requirements
 
-The API now persists chat records and intake, issues daily queue tickets, and
-serves a nurse dashboard with queue updates, patient threads, triage history,
-allergy flags, nurse messaging, and a mark-served action. Basic positions and
-optional ETAs are derived from active queue entries. The Cloud API adapter remains unimplemented. The Docker VPS scaffold is implemented; container build verification and actual VPS deployment remain operator steps. Local FHIR export is implemented. Surge mode and opt-in callback scheduling are implemented. `docs/superpowers/specs/` records the original
-pipeline design; the source code and current behavior below describe progress.
+- [Bun](https://bun.sh/) 1.4 or newer
+- PostgreSQL, such as a Supabase project
+- An OpenRouter API key and configured triage model IDs/cutoffs
 
-## Run it
+### Run locally
 
 ```bash
-cp .env.example .env      # fill in OPENROUTER_API_KEY; slugs and cutoffs are pre-filled
-bun install
+git clone https://github.com/kakaparubak/qure-hackathon.git
+cd qure-hackathon
+bun install --frozen-lockfile
+cp .env.example .env
+```
+
+Edit `.env` and set the required database, OpenRouter, model, dashboard login,
+and webhook token values. Keep secrets out of source control. Then apply the
+database migrations and start the API:
+
+```bash
+bun run --cwd packages/db migrate
 bun run dev
 ```
 
-Boot fails loudly and names every missing variable rather than starting with a
-half-configured process.
+Open the dashboard at [http://localhost:3000/dashboard/](http://localhost:3000/dashboard/).
+The API also exposes `POST /webhook/inbound` for local integration testing; the
+route requires the configured bearer token. `GET /health` checks liveness and
+`GET /ready` checks that the application is ready to serve traffic.
 
-### Prove the emergency path with no working model at all
+To link a WhatsApp number, configure `WA_ENABLED=true` and follow the pairing
+instructions printed by the API. Use a spare demo number with the unofficial
+Baileys integration. For a private VPS setup, see the [deployment guide](deploy/README.md).
 
-Set `WA_ENABLED=false` and use a nonempty invalid `OPENROUTER_API_KEY` (boot
-validation requires a value). Keep `DATABASE_URL` configured and migrations
-applied. In another shell:
+## Configuration
 
-```bash
-curl -s -X POST localhost:3000/webhook/inbound \
-  -H 'content-type: application/json' \
-  -d '{"phone":"628123456789","text":"dada saya kayak di tinju sejak tadi malam","providerMessageId":"curl-1","receivedAt":"2026-10-14T10:00:00.000Z","kind":"text"}'
-```
+The complete variable list and comments are in [`.env.example`](.env.example).
+Key settings include:
 
-That comes back with `"purpose": "playbook"` and the cardiac steps - "Duduk
-atau setengah berbaring", with no aspirin anywhere in it. The floor answered
-before the model was ever consulted, which is the property worth demonstrating
-live.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection used by the API |
+| `OPENROUTER_ENDPOINT`, `OPENROUTER_API_KEY` | Triage model API endpoint and credential |
+| `MODEL_PRIMARY_ID`, `MODEL_FALLBACK_ID` | Ordered triage model slots |
+| `RED_FLAG_CUTOFF_PRIMARY`, `RED_FLAG_CUTOFF_FALLBACK` | Per-model escalation thresholds |
+| `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD` | Dashboard login; use a unique password |
+| `INBOUND_WEBHOOK_TOKEN` | Bearer token for the inbound HTTP adapter |
+| `WA_ENABLED` | Enable WhatsApp pairing, or leave `false` for webhook-only mode |
+| `ZAI_API_KEY` | Optional primary conversational intake provider |
+| `LLM_ENDPOINT`, `LLM_MODEL_ID` | Conversational intake fallback provider |
 
-Repeating the same `providerMessageId` returns `"reply": null` - that is
-deduplication working, not a bug.
+Do not copy secrets into issues, screenshots, logs, or commits. Never use real
+patient information for a demo or test.
 
-### Link a real number
-
-Set `WA_ENABLED=true`, pick a `WA_PAIRING_MODE`, restart. Use a spare number -
-the transport is unofficial and demo-only, and WhatsApp can flag a number for
-using it.
-
-**`WA_PAIRING_MODE=qr`** (recommended) - the usual WhatsApp Web flow, printed to
-stdout as ASCII. Not bound to any phone number, so it works even when
-`WA_PAIRING_NUMBER` is wrong or unset. WhatsApp rotates the QR every ~20s and
-only the newest scans, so stream it rather than reading a stale block:
+## Development
 
 ```bash
-tail -f <logfile>
+bun test                   # API, core, and database tests
+bun run test:dashboard    # Dashboard tests
+bun run typecheck         # Strict TypeScript checks across the monorepo
+bun run build             # Build the dashboard
 ```
 
-Needs a terminal at least 63 columns wide in a monospace font, or the modules
-misalign and nothing can read it.
+Tests use fakes and isolated PGlite databases; they do not require external
+model credentials or a configured database. SSE and container-readiness
+integration tests bind local ports, so run them in an environment that permits
+local listeners. The GitHub Actions workflow runs typecheck and tests on pushes
+and pull requests to `main`.
 
-**`WA_PAIRING_MODE=code`** - Baileys requests an 8-character code for
-`WA_PAIRING_NUMBER` (E.164, digits only). Enter it on that phone under **Linked
-Devices**. The code is bound to that number and expires in about two minutes; a
-fresh one is minted automatically as the old one lapses. Renders anywhere,
-including over SSH.
+### Project layout
 
-Either way the log prints `WhatsApp connected as <number>` once linked, and the
-session is reused on later boots with no re-pairing.
+| Path | Responsibility |
+| --- | --- |
+| `apps/api` | Fastify server, webhook ingestion, dashboard API, and wiring |
+| `apps/dashboard` | React and Vite staff dashboard |
+| `packages/core` | Triage, red-flag rules, intake, emergency support, and FHIR mapping |
+| `packages/db` | PostgreSQL schema, migrations, and persistent pipeline store |
+| `deploy` | Docker/VPS deployment instructions |
+| `docs` | Demo artifacts and project documentation |
 
-`WA_AUTH_DIR` (default `.baileys/`) holds the linked session. It is gitignored
-because those files are live credentials for the number.
+## Safety and limitations
 
-## Safety properties
+- **Escalation is one-way.** No model or later message can clear an existing
+  emergency flag. Explicit requests for staff are handed off.
+- **The red-flag floor does not call an LLM.** A match short-circuits model
+  triage and selects emergency handling.
+- **Models do not control clinical state.** Backend rules decide escalation,
+  intake completeness, and queue placement. Emergency response text comes from
+  fixed, reviewable playbooks and a bounded catalog.
+- **No dispatch is guaranteed.** Queue placement and dashboard alerts do not
+  prove that a staff member saw the message or that emergency services were
+  contacted.
+- **Guidance is limited.** General self-care text is not a diagnosis or
+  treatment plan. Medication selection and dosing are not provided.
+- **Clinical review is still needed.** Emergency playbooks and triage behavior
+  require review by qualified local clinicians before any real-world use.
+- **WhatsApp transport is unofficial.** Baileys can change or be restricted by
+  WhatsApp; use a dedicated demo number.
 
-Each of these has a test behind it, and each is a property of the whole
-pipeline rather than of one function.
+See [emergency support scope and sources](packages/core/src/emergency/README.md)
+for the current first-aid catalog and its limitations.
 
-- **Escalate-only.** Every layer can move a patient up the ladder and none can
-  move them down. The decision model cannot override the floor, and nothing
-  overrides an explicit request for a human. Concretely: the escalation branch
-  is checked *before* ambiguity, so asking a clarifying question is unreachable
-  once anything has fired.
-- **The floor short-circuits the model.** On a red-flag hit the model is not
-  called at all - asserted as `model.calls === 0`, not as "the reply looks
-  right". A model that would have said "no emergency" does not get a vote.
-- **A model failure escalates.** Timeout, provider error, or an unparseable
-  body produces an escalation with the generic playbook. A missing `red_flag`
-  answer is an error rather than a zero.
-- **Cutoffs are per-model.** The threshold is looked up by the model that
-  answered, and the requested slug is recorded rather than the dated id the
-  provider echoes back. Using one model's cutoff on another's output silently
-  changes who gets paged.
-- **Playbook text is never generated.** Acknowledgement, first-aid steps, and
-  the safety closer are fixed strings a clinician can read and correct. The
-  cardiac playbook contains no aspirin advice, and an infant under three months
-  gets "go now" with no home advice.
-- **A message is answered at most once.** Re-delivery on reconnect is absorbed
-  by a bounded seen-set, and a suppressed message never even reaches the model.
-- **Non-text messages get no triage.** A voice note gets "tolong ketik ya" and
-  no decision is recorded.
-- **A message is never dropped silently.** Inbound senders arrive as WhatsApp
-  LIDs (`...@lid`) as often as phone numbers, and a LID that resolves to nobody
-  is logged with its JID rather than skipped. A drop with no log line is
-  indistinguishable from a message that never arrived, which is exactly how the
-  LID gap hid during a live test.
-- **Pairing retries are bounded.** A lapsed or rejected pairing backs off
-  instead of retrying on a fixed timer, and stops after five attempts. A fixed
-  2-second retry loop ran for nine minutes against WhatsApp's pairing endpoint
-  before this was caught - that is how a number gets flagged.
+## Contributing
 
-## Commands
+Issues and pull requests are welcome. Before opening a pull request, run the
+tests and typecheck above. Changes to red-flag patterns, escalation behavior, or
+emergency guidance should include focused tests and supporting clinical
+references. Do not include real patient data or credentials in contributions.
 
-```bash
-bun run dev        # start the API
-bun run test       # API/core/DB tests; SSE test binds a local port
-bun run test:dashboard # dashboard tests via Vitest
-bun run typecheck  # strict TS across all packages
-```
+## License
 
-Tests are colocated (`foo.test.ts` beside `foo.ts`) and use fakes and isolated
-PGlite databases, so they need no service credentials or external network. The
-SSE integration test opens a local HTTP listener.
-
-### Durable chat records
-
-The running API requires `DATABASE_URL` in the root `.env` and the DB migrations
-applied. WhatsApp and HTTP messages now persist patients, active visit sessions,
-transcripts, decisions, and outbound reply intent. Escalation stays set on later
-turns; duplicate provider IDs remain suppressed after a restart. Delivered
-playbooks are logged after successful WhatsApp send. HTTP returns do not count as
-WhatsApp delivery. See [database delivery semantics](packages/db/README.md).
-
-### Conversational intake
-
-Non-emergency text now goes through an intake extraction LLM after triage. It
-understands answers in context and can capture several explicitly stated facts
-from one message. The backend validates supporting text, persists progress in
-`sessions.intake`, and controls field order for name, age in years, complaint,
-duration, allergies, and current medications. The LLM can write a conversational
-question; backend reply validation and fixed Bahasa questions provide fallback. It never invents
-a birth date from age or turns patient-reported medication text into advice.
-
-Every reply re-enters L1. Medical escalation interrupts intake; `petugas` or
-`bicara dengan petugas` requests immediate human handoff. After three consecutive
-unresolved answers to the same pending field, intake stops and flags human
-handoff. Successful answers reset that counter. Counters and fields survive a
-restart and remain isolated per session.
-
-When `ZAI_API_KEY` is set, z.ai is the primary intake provider (defaults:
-`glm-5.3-flash` and its chat-completions endpoint). OpenRouter is the fallback:
-`LLM_ENDPOINT` defaults to OpenRouter chat completions and `LLM_MODEL_ID` to
-`openrouter/auto` with its low cost tier, using `OPENROUTER_API_KEY`. Provider
-requests time out after six seconds each. Extraction retries once per provider;
-if both providers fail, scripted direct-answer extraction takes over. A separate
-reply-generation call also fails over, then uses the fixed question. The total
-turn can therefore exceed six seconds. These providers are separate from the
-calibrated System One decision models.
-
-Extraction accepts both field maps and validated arrays of field updates.
-Evidence checks recognize Indonesian repeated-word shorthand (`kacang2an` →
-`kacang-kacangan`) while retaining the original patient message. Scripted
-extraction does not disable conversational reply generation. Invalid or
-truncated provider replies try the next provider before a fixed question is
-used; medication-history questions are allowed, medication instructions are
-rejected. Replies must ask about the backend's pending field.
-
-Provider fallback logs contain only the operation, provider slot, and failure
-category. Outbound intake metadata separates extraction fallback (`usedFallback`)
-from `replyFallbackReason` (`unavailable`, `provider_failure`, `invalid_reply`,
-or null), so a scripted question can be diagnosed without logging patient text.
-`replyProviderFailures` records safe provider-slot/reason pairs, distinguishing
-rejected wording from timeouts and malformed responses. `extractionRecovery`
-records rejected/recovered field names and whether patient history was used.
-
-When extraction omits a clear symptom statement, the backend preserves the
-patient's literal wording (including details such as "kena paku") rather than
-re-asking the complaint or accepting an unsupported medical paraphrase. Recovery
-uses only patient messages from the current visit, never assistant examples.
-Literal onset phrases such as "dari kemaren" stay literal. Additional complaint
-details retain the earlier complaint and count as progress, so an unrelated
-pending identity question does not turn useful symptom answers into failed
-attempts. Truly unresolved answers remain bounded and hand off as before.
-
-
-Medical escalation guidance remains static. The backend owns field order,
-completeness, and escalation; the intake LLM proposes evidenced facts and can
-write the non-emergency question. Completing intake creates a normal-lane queue
-entry and returns its stable daily ticket number and current lane position.
-Escalations join the priority lane. The first alert is static; follow-up emergency
-replies select from a bounded support catalog using persisted emergency context,
-with local fallback if providers fail. Every reply urges immediate external help. The dashboard
-shows new P1 alerts; `nursePagedAt` records priority placement, not proof of an
-external notification or nurse acknowledgement.
-
-Try from a fresh visit: `Saya Budi, umur 62 tahun, batuk sudah 3 hari.` Then answer
-the allergy and medication questions. Use another account to check isolation.
-An already escalated session remains escalated; it will not restart routine
-intake just because the next message is benign.
-
-
-### Nurse dashboard
-
-Run `VITE_USE_MOCK=false bun run build`, then start the API and open
-`http://localhost:3000/dashboard/`. Mock data is enabled by default unless
-`VITE_USE_MOCK` is exactly `false` at build time. The built dashboard and API
-share an origin. `GET /api/events` polls the queue every three seconds and emits
-`queue_updated` events; disconnected clients also poll REST. Session details
-refresh every two seconds, including incoming patient replies during staff care.
-
-Nurses can inspect threads, send WhatsApp messages, and mark sessions served.
-Sending a staff message claims the visit before delivery and pauses model triage,
-LLM intake, and automatic chat replies until the visit ends. Patient messages
-continue to persist and appear in the open thread. Local deterministic red-flag
-screening still raises priority and records its finding, without sending another
-bot playbook into the staff conversation. The assignment persists across server
-restarts; older visits with nurse messages also pause automation on their next
-patient turn. A new visit after serving starts with automation enabled. A failed
-staff send leaves takeover active so the bot does not interrupt while staff retry.
-The transcript labels staff, patient, and assistant messages separately.
-With `WA_ENABLED=false`, nurse sends return HTTP 503 and do not record a sent
-message. Live sends are recorded after the transport accepts them; a later DB
-failure can still leave an unrecorded delivery.
-
-Allergy flags combine active patient-condition records with this visit's
-patient-reported intake allergies. Details label intake allergies as
-patient-reported; displaying them does not create or confirm a clinical
-Condition. Explicit none/unknown answers do not create positive allergy flags.
-
-Set `QUEUE_SERVICE_MINUTES` to a positive service interval to enable the basic
-lane-position ETA calculation; otherwise ETA is unavailable. This accounts for priority demand and callback slots. Pending outbound messages require reconciliation; there
-is no automatic resend worker.
-
-
-### Surge mode and green lane
-
-Apply migrations (`bun run --cwd packages/db migrate`) before starting this
-version. Migration `0002` adds the singleton `queue_runtime` table for durable
-surge episodes and callback allocation. No existing patient data is replaced.
-
-At three active P1 visits, the queue worker records one surge notice per waiting
-routine patient, including new arrivals during the surge. A matching recovery
-notice is sent once when P1 demand drops below three. Staff-managed visits,
-human requests, and emergencies receive no queue broadcasts. Notices are claimed
-before sending; failed or interrupted sends require reconciliation rather than
-blind automatic retries. In webhook-only mode the notices remain pending and
-are not treated as delivered.
-
-P1 cases lead the priority lane; other priority cases follow, then normal FIFO,
-then callbacks ordered by their booked time. Position is numbered within each
-lane. Routine ETA includes everyone in the priority lane ahead of it; it stays
-unavailable unless `QUEUE_SERVICE_MINUTES` is configured. Tickets remain stable.
-
-A delivered surge notice offers `JALUR HIJAU` only for visits with a clear
-low-acuity minor/routine-medication decision (urgency at most 1), no higher-acuity
-verdict anywhere in the visit, no escalation, and no human request. The patient
-must explicitly accept while surge is still active. The backend rechecks triage
-and eligibility, then retains the ticket and books a callback. It never moves a
-patient automatically or clears a priority/human/emergency flag. New symptoms
-and human requests still escalate callbacks immediately.
-
-`QUEUE_CALLBACK_DELAY_MINUTES` defaults to 60; `QUEUE_CALLBACK_SPACING_MINUTES`
-defaults to 10. These are scheduling defaults, not clinical wait-time advice.
-Callback slots are visible in the dashboard in WIB; staff deliver the callback
-through the existing chat and finish the visit normally. There is no automatic
-phone dialer. Scheduled check-ins are implemented as described below.
-
-
-### Scheduled waiting-room check-ins
-
-A live WhatsApp worker polls every 30 seconds. Routine patients in the normal
-waiting queue receive a check-in after 45 minutes without a patient message.
-Their reply re-enters L1 and the normal triage pipeline; a floor hit immediately
-escalates, while a routine reply postpones the next check-in.
-
-The default limit is three reminder attempts per visit, persisted across restarts
-and patient replies. After another interval without a reply, the visit moves to
-the P2 human queue, keeps its ticket, and receives one handoff notice. Silence is
-not a medical diagnosis and never clears an existing priority. Delivery failure
-or unresolved delivery also routes to human review rather than retrying blindly.
-
-Set `CHECK_IN_INTERVAL_MINUTES` (default 45, positive and at most 1440) and
-`CHECK_IN_MAX_REMINDERS` (default 3, integer 1–10) to override the defaults. For a
-local demonstration, an interval of 1 minute avoids a 45-minute wait.
-
-Staff-owned, emergency, escalated, callback, called, served and closed visits do
-not receive routine reminders. Patient replies, staff takeover and visit closure
-cancel unsent reminders. Existing waiting visits are scheduled from their latest
-patient activity/queue entry. No reminders go out beyond 24 hours from the last
-patient message; those visits are flagged internally for human review. Webhook-only
-mode neither polls nor reserves reminders.
-
-The scheduler reuses `sessions.next_check_in`, `check_in_count` and the message
-outbox; no new database migration is needed. Reservations are transactional and
-claimed once across workers. A message already claimed for transport may complete
-while staff take over; pending messages are cancelled. A crash during sending
-leaves an uncertain delivery for reconciliation and never blindly resends it.
-
-
-### Download a FHIR visit bundle
-
-Open a patient thread in the live dashboard and choose **Unduh FHIR**, or request
-`GET /api/sessions/:id/fhir`. This downloads an uncached FHIR R4 collection bundle
-with Patient, Encounter, eligible confirmed Condition records and patient-reported
-intake in QuestionnaireResponse. Export works on active and completed visits and
-does not change their records or triage. No database migration is required.
-
-For an offline demonstration, `bun run demo:fhir` prints the synthetic fixture;
-`docs/demo/fhir-bundle.json` is the matching pre-rendered artifact. No real patient
-data or credentials are used. See [FHIR mappings and limits](packages/core/src/fhir/README.md)
-for lifecycle mappings, included data, exclusions and SATUSEHAT deployment needs.
-
-
-### Run on a private VPS
-
-See [VPS deployment](deploy/README.md) for Docker build, explicit migrations,
-one-time WhatsApp pairing and the SSH tunnel. `compose.yaml` preserves the linked
-session in a named volume, caps memory, probes readiness and restarts process
-failures. It binds only to VPS localhost and builds the dashboard in live mode.
-No local `.env` or default Baileys credentials are included in the image.
-Before public access, configure the required dashboard password and inbound webhook token in `.env`; the dashboard API requires login.
+No license has been added yet. Until the maintainers choose and add one, this
+repository does not grant permission to reuse or redistribute its code.
