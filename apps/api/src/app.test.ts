@@ -111,3 +111,21 @@ describe("POST /webhook/inbound", () => {
     await app.close();
   });
 });
+
+describe('GET /ready',()=>{
+  test('returns success only after the runtime reports readiness',async()=>{
+    let ready=false;const app=buildApp({handleInbound,readiness:async()=>ready});
+    try {
+      expect((await app.inject('/ready')).statusCode).toBe(503);
+      ready=true;const response=await app.inject('/ready');
+      expect(response.statusCode).toBe(200);expect(response.json()).toEqual({ok:true});expect(response.headers['cache-control']).toBe('no-store');
+    } finally {await app.close();}
+  });
+  test('missing and failed dependencies stay unavailable without leaking details',async()=>{
+    for(const readiness of [undefined,async()=>{throw new Error('private DB URL');}]) {
+      const app=buildApp({handleInbound,readiness});
+      try {const response=await app.inject('/ready');expect(response.statusCode).toBe(503);expect(response.json()).toEqual({ok:false});}
+      finally {await app.close();}
+    }
+  });
+});

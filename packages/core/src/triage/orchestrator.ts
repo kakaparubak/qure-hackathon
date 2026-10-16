@@ -31,6 +31,12 @@ const WANTS_HUMAN_CUTOFF = 0.5;
 /** At or above this, the urgency answer alone escalates. */
 const URGENCY_ESCALATION_THRESHOLD = 3;
 
+/** Urgency needed to corroborate a red_flag above cutoff (see escalationReasonFor). */
+const RED_FLAG_CORROBORATION_URGENCY = 2;
+
+/** Informal red flag that corroborates without urgency (see escalationReasonFor). */
+const RED_FLAG_INFORMAL_CORROBORATION = 0.5;
+
 const DEFAULT_TIMEOUT_MS = 9_000;
 const DEFAULT_SEEN_LIMIT = 500;
 
@@ -99,7 +105,21 @@ export function escalationReasonFor(
 
   // The cutoff belongs to the model that answered: 0.20 is an emergency on a
   // model calibrated at 0.15 and a routine case on one calibrated at 0.31.
-  if (decision.redFlag >= slotFor(slots, decision.model).cutoff) return "red_flag";
+  //
+  // A bare red_flag no longer escalates on its own. Casual chest mentions
+  // ("dada aku panas banget") score red_flag ~0.22 against a 0.15 cutoff while
+  // urgency stays below 2 - paging a nurse for that trained patients to ignore
+  // the page. Corroboration required: the model must ALSO score urgency >= 2,
+  // or be confident the emergency survives slang discounting
+  // (red_flag_informal >= 0.5). Measured separation: casual compounds sit at
+  // informal ~0.19, real emergencies at ~0.99. The floor is untouched - its
+  // patterns already require pain context, and it never had this problem.
+  if (decision.redFlag >= slotFor(slots, decision.model).cutoff) {
+    const corroborated =
+      (decision.urgency ?? 0) >= RED_FLAG_CORROBORATION_URGENCY ||
+      (decision.redFlagInformal ?? 0) >= RED_FLAG_INFORMAL_CORROBORATION;
+    if (corroborated) return "red_flag";
+  }
 
   return null;
 }
@@ -247,9 +267,13 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
       reason ??= escalationReasonFor(decision, deps.slots);
     }
 
+    // Same corroboration gate as the ladder: isEmergency drives the sticky
+    // reply, so a casual mention that no longer escalates must not brand the
+    // session emergency either. Deliberately not derived from `reason` - the
+    // ladder checks wants_human first, and a wants_human escalation on an
+    // urgency-4 message is still a medical emergency.
     const medicalEmergency = verdict.hit || reason === 'model_failure' ||
-      (decision.urgency ?? 0) >= URGENCY_ESCALATION_THRESHOLD ||
-      decision.redFlag >= slotFor(deps.slots,decision.model).cutoff;
+      (decision.urgency ?? 0) >= URGENCY_ESCALATION_THRESHOLD || reason === 'red_flag';
     const kind: ReplyKind = reason !== null ? "escalation" : replyKindFor(decision, deps.slots);
 
     deps.logger?.(

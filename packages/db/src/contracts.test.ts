@@ -37,7 +37,7 @@ test('queue projection derives positions, ETA and wait time in the frozen event 
     {sessionId:'a',patientName:'A',tier:'P3',lane:'normal',joinedAt,hasAllergies:false,ticketNumber:1,ticketDate:'2026-10-15'},
   ],new Date('2026-10-15T00:10:00Z'),5);
   const event: import('@qure/core').QueueEvent={type:'queue_updated',rows};
-  expect(event.rows.map(r=>[r.sessionId,r.position,r.etaMinutes,r.waitedMinutes])).toEqual([['p',1,0,10],['a',1,0,10],['b',2,5,9]]);
+  expect(event.rows.map(r=>[r.sessionId,r.position,r.etaMinutes,r.waitedMinutes])).toEqual([['p',1,0,10],['a',1,5,10],['b',2,10,9]]);
   // Priority joined after the routine patients but is served first; its ticket
   // number stays stable and never determines position.
   expect(rows[0]?.ticketNumber).toBe(2);

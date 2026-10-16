@@ -15,6 +15,13 @@
       "when": 1792059388241,
       "tag": "0001_safety_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792139839379,
+      "tag": "0002_flowery_red_ghost",
+      "breakpoints": true
     }
   ]
 }

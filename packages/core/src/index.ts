@@ -25,4 +25,7 @@ export * from "./decision-model/fake";
 export * from "./reply/playbooks";
 export * from "./reply/templates";
 export * from "./queue/tickets";
+export * from "./queue/surge";
 export * from "./triage/orchestrator";
+
+export * from "./fhir/mapper";

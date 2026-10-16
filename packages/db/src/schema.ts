@@ -37,6 +37,13 @@ export const flowAction = pgEnum("flow_action",
 
 export const clarity = pgEnum("clarity", ["crystal_clear", "mostly_clear", "ambiguous", "gibberish"]);
 
+/** Singleton row serializes surge episodes and callback-slot allocation. */
+export const queueRuntime = pgTable("queue_runtime", {
+  id: varchar("id").primaryKey(),
+  surgeActive: boolean("surge_active").notNull().default(false),
+  episode: integer("episode").notNull().default(0),
+});
+
 // ---------- tables ----------
 export const patients = pgTable("patients", {
   id: pk(),
@@ -155,4 +162,4 @@ export const playbookLog = pgTable("playbook_log", {
   playbookVersion: varchar("playbook_version").notNull(),
   messageText: text("message_text").notNull(), // exact text delivered
   deliveredAt: ts("delivered_at").notNull().defaultNow(),
-}); 
+});

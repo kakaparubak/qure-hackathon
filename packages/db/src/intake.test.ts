@@ -54,6 +54,8 @@ test('two interleaved users resume intake independently; one escalates while the
   expect(completed.outcome.reply.text).toContain('Nomor antrean Anda: 2');
   expect((await session(firstA.sessionId)).status).toBe('escalated');
   expect((await session(firstB.sessionId)).status).toBe('waiting');
+  expect((await session(firstB.sessionId)).nextCheckIn!.getTime()).toBeGreaterThan(Date.now()+44*60_000);
+  expect((await session(firstA.sessionId)).nextCheckIn).toBeNull();
   const [entryB]=await db.select().from(schema.queueEntries).where(eq(schema.queueEntries.sessionId,firstB.sessionId));
   // Ticket numbers are shared across lanes per day: the escalation took 1.
   expect(entryB?.queueNumber).toBe(2);
@@ -92,4 +94,23 @@ test('provider outage advances scripted direct-answer intake rather than a DB fa
   const saved=await session(result.sessionId);
   expect(readIntake(saved.intake).fields).toEqual({name:'Dewi',ageYears:35});
   expect(saved.status).toBe('triaging');
+});
+
+test('persisted injury conversation recovers omitted complaint after restart rather than falsely handing off',async()=>{
+  const phone='628123456799';
+  const [patient]=await db.insert(schema.patients).values({waNumber:phone}).returning();
+  const [visit]=await db.insert(schema.sessions).values({patientId:patient!.id,intake:{version:1,fields:{},awaiting:'complaint',attempts:2,status:'collecting'}}).returning();
+  const original='kaki saya sakit dari kemaren, kena paku';
+  await db.insert(schema.messages).values({sessionId:visit!.id,direction:'inbound',sender:'patient',kind:'text',body:original});
+  await db.insert(schema.messages).values({sessionId:visit!.id,direction:'outbound',sender:'bot',kind:'text',body:'Sakitnya di bagian mana?',meta:{delivery:'sent'}});
+  const model:IntakeModel={extract:async()=>({updates:{},nextField:null}),respond:async()=>{throw new Error('provider unavailable');}};
+  const result=(await send(phone,'di telapak kaki saya deket jempol kaki, sekarang perih banget, udah saya cuci',model))!;
+  expect(result.sessionId).toBe(visit!.id);
+  const saved=await session(result.sessionId);const intake=readIntake(saved.intake);
+  expect(saved.status).toBe('triaging');expect(saved.wantsHuman).toBe(false);
+  expect(intake.fields.complaint).toContain(original);expect(intake.fields.complaint).toContain('deket jempol');
+  expect(intake.fields.duration).toBe('dari kemaren');expect(intake.attempts).toBe(0);expect(intake.awaiting).toBe('name');
+  expect(result.outcome.reply.text).toContain('Boleh tahu nama Anda?');
+  const [outbound]=await db.select().from(schema.messages).where(eq(schema.messages.id,result.id));
+  expect(outbound?.meta?.intake).toMatchObject({extractionRecovery:{recoveredFields:['complaint','duration'],fromHistory:true}});
 });

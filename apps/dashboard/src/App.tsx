@@ -3,14 +3,12 @@ import { QueueBoard } from "./components/QueueBoard";
 import { SessionDetailView } from "./components/SessionDetailView";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { P1Alerts } from "./components/P1Alerts";
-import { ServeError } from "./components/ServeError";
 import { SoundToggle } from "./components/SoundToggle";
 import { DevPanel } from "./components/DevPanel";
 import { useQueueEvents } from "./useQueueEvents";
 import { useQueue } from "./useQueue";
 import { useP1Alerts } from "./useP1Alerts";
 import { useAlertSound } from "./useAlertSound";
-import { useServe } from "./useServe";
 import { useSelectedSession } from "./useSelectedSession";
 import { useNow } from "./useNow";
 import { USE_MOCK } from "./api";
@@ -20,7 +18,6 @@ export default function App() {
   const { data, dataUpdatedAt } = useQueue(status !== "live");
   const { alerts, dismiss } = useP1Alerts(data);
   const sound = useAlertSound(alerts.length);
-  const { serve, failure, clearFailure } = useServe();
   const { id: openId, open, close } = useSelectedSession();
   const [restoreId, setRestoreId] = useState<string | null>(null);
   const now = useNow();
@@ -39,7 +36,6 @@ export default function App() {
       {/* Alert P1 dan galat "Layani" berbagi satu wadah lengket supaya tidak saling menimpa. */}
       <div className="sticky top-0 z-10 mb-4 space-y-2 empty:hidden">
         <P1Alerts alerts={alerts} rows={data} families={families} onDismiss={dismiss} />
-        <ServeError failure={failure} onDismiss={clearFailure} />
       </div>
       <header className="mb-4 space-y-2">
         <div className="flex items-baseline justify-between gap-3">
@@ -50,6 +46,11 @@ export default function App() {
         </div>
         <ConnectionStatus status={status} lastUpdatedAt={lastUpdatedAt} now={now} />
         <SoundToggle enabled={sound.enabled} onEnable={sound.enable} onDisable={sound.disable} />
+        {data && data.filter(row => row.tier === 'P1').length >= 3 && (
+          <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950">
+            Antrean sedang padat: {data.filter(row => row.tier === 'P1').length} kasus P1 aktif. Kasus prioritas didahulukan; pasien yang memenuhi syarat dapat memilih panggilan balik.
+          </p>
+        )}
       </header>
 
       {openId ? (
@@ -64,7 +65,6 @@ export default function App() {
       ) : (
         <QueueBoard
           polling={status !== "live"}
-          onServe={serve}
           onOpen={handleOpen}
           restoreFocusId={restoreId}
         />

@@ -169,9 +169,15 @@ function statusOf(error: unknown): number | undefined {
 const message = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+export interface BaileysChannel extends WhatsAppChannel {
+  isConnected():boolean;
+  close():Promise<void>;
+}
+interface ChannelDependencies {openSocket:typeof makeWASocket;loadAuth:typeof useMultiFileAuthState;}
 export async function createBaileysChannel(
   options: BaileysChannelOptions,
-): Promise<WhatsAppChannel> {
+  dependencies:ChannelDependencies={openSocket:makeWASocket,loadAuth:useMultiFileAuthState},
+): Promise<BaileysChannel> {
   const log = options.logger ?? (() => {});
   const mode: PairingMode = options.pairingMode ?? "code";
   const qrSink = options.qrSink ?? ((art: string) => process.stdout.write(art));
@@ -183,10 +189,22 @@ export async function createBaileysChannel(
   let pairingAttempts = 0;
   let reconnecting = false;
   let reconnectDelay = RECONNECT_DELAY_MS;
+  let stopped=false;
+  let connected=false;
+  let closing:Promise<void>|null=null;
+  const timers=new Set<ReturnType<typeof setTimeout>>();
+  const inFlight=new Set<Promise<void>>();
+  const authWrites=new Set<Promise<void>>();
+  function schedule(callback:()=>void,delay:number) {
+    const timer=setTimeout(()=>{timers.delete(timer);if(!stopped)callback();},delay);
+    timers.add(timer);
+  }
 
   async function connect(): Promise<void> {
-    const { state, saveCreds } = await useMultiFileAuthState(options.authDir);
-    const sock = makeWASocket({
+    if(stopped) return;
+    const { state, saveCreds } = await dependencies.loadAuth(options.authDir);
+    if(stopped) return;
+    const sock = dependencies.openSocket({
       auth: state,
       printQRInTerminal: false,
       browser: Browsers.appropriate("desktop"),
@@ -195,12 +213,17 @@ export async function createBaileysChannel(
     });
     socket = sock;
 
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update",()=>{
+      const write=saveCreds().catch(()=>log('WhatsApp credential save failed.')).finally(()=>authWrites.delete(write));
+      authWrites.add(write);
+    });
 
     sock.ev.on("connection.update", (update) => {
+      if(stopped || socket !== sock) return;
       const { connection, lastDisconnect } = update;
 
       if (connection === "open") {
+        connected=true;
         log(`WhatsApp connected as ${options.pairingNumber}`);
         // A working connection clears the backoff, so a later blip starts
         // from the short delay again instead of the ceiling.
@@ -209,6 +232,7 @@ export async function createBaileysChannel(
       }
 
       if (connection !== "close") return;
+      connected=false;
 
       const status = statusOf(lastDisconnect?.error);
 
@@ -250,7 +274,7 @@ export async function createBaileysChannel(
           `Reconnecting in ${Math.round(delay / 1000)}s.`,
       );
 
-      setTimeout(() => {
+      schedule(() => {
         reconnecting = false;
         void connect().catch((error: unknown) => log(`Reconnect failed: ${message(error)}`));
       }, delay);
@@ -267,7 +291,7 @@ export async function createBaileysChannel(
         sock.ev.on("connection.update", (update) => {
           // WhatsApp rotates the QR every ~20s and only the newest one is
           // scannable, so each new value is printed rather than the first.
-          if (!update.qr || update.qr === lastQr) return;
+          if (stopped || !update.qr || update.qr === lastQr) return;
           lastQr = update.qr;
 
           log("Scan this QR: WhatsApp -> Settings -> Linked Devices -> Link a device.");
@@ -277,7 +301,7 @@ export async function createBaileysChannel(
         });
       } else {
         sock.ev.on("connection.update", (update) => {
-          if (!update.qr || pairingRequested) return;
+          if (stopped || !update.qr || pairingRequested) return;
 
           if (pairingAttempts >= MAX_PAIRING_ATTEMPTS) {
             // Bounded on purpose: an unbounded loop against WhatsApp's pairing
@@ -305,7 +329,7 @@ export async function createBaileysChannel(
 
               // Clear the guard just before this code lapses, so the next qr
               // frame mints a new one. Bounded by MAX_PAIRING_ATTEMPTS.
-              setTimeout(() => {
+              schedule(() => {
                 if (!isPaired(state.creds)) pairingRequested = false;
               }, PAIRING_CODE_TTL_MS);
             })
@@ -319,36 +343,23 @@ export async function createBaileysChannel(
       }
     }
 
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      // "notify" is a live message. "append" is history replay on reconnect,
-      // which would otherwise be answered as if it had just arrived.
-      if (type !== "notify") return;
-
-      for (const incoming of messages) {
-        if (incoming.key.fromMe) continue;
-
-        const phone = await resolvePhone(sock, incoming.key);
-        if (!phone) {
-          // Never silent: a dropped message that logs nothing is
-          // indistinguishable from one that never arrived.
-          log(`Ignored a message with no resolvable phone number (jid ${incoming.key.remoteJid}).`);
-          continue;
-        }
-
-        const content = incoming.message as Record<string, unknown> | null | undefined;
-        const inbound: InboundMessage = {
-          phone,
-          text: textOf(content),
-          providerMessageId: incoming.key.id ?? `${phone}-${Date.now()}`,
-          receivedAt: toDate(incoming.messageTimestamp),
-          kind: kindOf(content),
-        };
-
-        log(`Inbound ${inbound.kind} from ${phone}.`);
-
-        void handler?.(inbound).catch((error: unknown) => {
-          log(`Handler failed for ${inbound.providerMessageId}: ${message(error)}`);
-        });
+    sock.ev.on("messages.upsert", ({ messages, type }) => {
+      if(stopped || socket !== sock || type !== 'notify' || !handler) return;
+      const run=handler;
+      for(const incoming of messages) {
+        if(incoming.key.fromMe) continue;
+        // Register accepted work before its first await, including LID lookup.
+        // A SIGTERM arriving during resolution must still drain this message.
+        const task=(async()=>{
+          const phone=await resolvePhone(sock,incoming.key);
+          if(!phone) {log('Ignored a message with no resolvable phone number.');return;}
+          const content=incoming.message as Record<string,unknown>|null|undefined;
+          const inbound:InboundMessage={phone,text:textOf(content),providerMessageId:incoming.key.id ?? `${phone}-${Date.now()}`,
+            receivedAt:toDate(incoming.messageTimestamp),kind:kindOf(content)};
+          log(`Inbound ${inbound.kind} from ${phone}.`);
+          await run(inbound);
+        })().catch(()=>log('Inbound WhatsApp handling failed.')).finally(()=>inFlight.delete(task));
+        inFlight.add(task);
       }
     });
   }
@@ -356,6 +367,19 @@ export async function createBaileysChannel(
   await connect();
 
   return {
+    isConnected:()=>connected && !stopped,
+    close() {
+      if(closing) return closing;
+      stopped=true;connected=false;handler=null;
+      for(const timer of timers) clearTimeout(timer);
+      timers.clear();
+      closing=(async()=>{
+        await Promise.allSettled([...inFlight]);
+        socket?.end(new Error('Service shutting down'));socket=null;
+        await Promise.allSettled([...authWrites]);
+      })();
+      return closing;
+    },
     async send(msg: OutboundMessage): Promise<void> {
       await limiter.wait(msg.phone);
 

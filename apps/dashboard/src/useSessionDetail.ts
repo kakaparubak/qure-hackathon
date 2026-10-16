@@ -3,7 +3,8 @@ import { getMessages, getSession, getTriage } from "./api";
 
 const common = {
   // Tidak ada event SSE untuk pesan/triase baru, jadi ambil ulang berkala selama detail terbuka.
-  refetchInterval: 15_000,
+  refetchInterval: 2_000,
+  refetchIntervalInBackground: true,
   // Data medis: jangan simpan lama di memori setelah detail ditutup.
   gcTime: 60_000,
 };

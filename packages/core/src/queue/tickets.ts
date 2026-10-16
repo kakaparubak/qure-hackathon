@@ -7,6 +7,7 @@
  */
 
 import type { QueueRow } from "../contracts";
+import { queueEtaText } from './surge';
 
 /** One board row: contract QueueRow plus the stable per-day ticket identity. */
 export interface QueueTicketRow extends QueueRow {
@@ -14,6 +15,8 @@ export interface QueueTicketRow extends QueueRow {
   ticketNumber: number;
   /** Local day the ticket was issued for (YYYY-MM-DD); numbering resets daily. */
   ticketDate: string;
+  callbackSlot?: string | null;
+  etaReason?: string;
 }
 
 /**
@@ -22,10 +25,11 @@ export interface QueueTicketRow extends QueueRow {
  * Only routine patients get a ticket in chat. An escalation reply stays exactly
  * the fixed playbook - safety text is never appended to or edited.
  */
-export function ticketReplyText(ticket: { ticketNumber: number; position: number }): string {
+export function ticketReplyText(ticket: { ticketNumber: number; position: number },etaMinutes:number|null=null): string {
   return [
     "Terima kasih, informasi awal pasien sudah lengkap dan tersimpan.",
     `Nomor antrean Anda: ${ticket.ticketNumber} (posisi saat ini: ${ticket.position}).`,
+    queueEtaText(etaMinutes),
     "Tunjukkan pesan ini di loket. Jika keluhan memburuk, balas pesan ini.",
   ].join("\n");
 }

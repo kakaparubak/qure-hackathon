@@ -1,0 +1,201 @@
+{
+  "resourceType": "Bundle",
+  "id": "bundle-20000000-0000-4000-8000-000000000001",
+  "type": "collection",
+  "timestamp": "2026-10-16T09:00:00.000Z",
+  "meta": {
+    "tag": [
+      {
+        "system": "https://qure.example/fhir/CodeSystem/export-kind",
+        "code": "local-export",
+        "display": "Local export; not submitted to SATUSEHAT"
+      }
+    ]
+  },
+  "entry": [
+    {
+      "fullUrl": "https://qure.example/fhir/Patient/10000000-0000-4000-8000-000000000001",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "10000000-0000-4000-8000-000000000001",
+        "identifier": [
+          {
+            "system": "https://qure.example/fhir/identifier/whatsapp",
+            "value": "6280000000000"
+          }
+        ],
+        "telecom": [
+          {
+            "system": "phone",
+            "value": "+6280000000000"
+          }
+        ],
+        "name": [
+          {
+            "text": "Sari Contoh"
+          }
+        ],
+        "gender": "female"
+      }
+    },
+    {
+      "fullUrl": "https://qure.example/fhir/Encounter/20000000-0000-4000-8000-000000000001",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "20000000-0000-4000-8000-000000000001",
+        "identifier": [
+          {
+            "system": "https://qure.example/fhir/identifier/visit",
+            "value": "20000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "status": "finished",
+        "class": {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "VR",
+          "display": "virtual"
+        },
+        "subject": {
+          "reference": "https://qure.example/fhir/Patient/10000000-0000-4000-8000-000000000001"
+        },
+        "period": {
+          "start": "2026-10-16T08:00:00.000Z",
+          "end": "2026-10-16T08:45:00.000Z"
+        },
+        "priority": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-ActPriority",
+              "code": "R"
+            },
+            {
+              "system": "https://qure.example/fhir/CodeSystem/triage-tier",
+              "code": "P3"
+            }
+          ],
+          "text": "Qure! P3"
+        },
+        "reasonCode": [
+          {
+            "text": "Keluhan pasien: batuk"
+          },
+          {
+            "text": "Interpretasi AI (belum dikonfirmasi klinisi): Keluhan batuk, perlu penilaian petugas"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "https://qure.example/fhir/Condition/30000000-0000-4000-8000-000000000001",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "30000000-0000-4000-8000-000000000001",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active"
+            }
+          ]
+        },
+        "verificationStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+              "code": "confirmed"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://hl7.org/fhir/sid/icd-10",
+              "code": "I10"
+            }
+          ],
+          "text": "Hipertensi yang telah dikonfirmasi klinisi (contoh sintetis)"
+        },
+        "subject": {
+          "reference": "https://qure.example/fhir/Patient/10000000-0000-4000-8000-000000000001"
+        },
+        "recordedDate": "2026-10-01T01:00:00.000Z",
+        "asserter": {
+          "display": "Perawat Contoh"
+        }
+      }
+    },
+    {
+      "fullUrl": "https://qure.example/fhir/QuestionnaireResponse/intake-20000000-0000-4000-8000-000000000001",
+      "resource": {
+        "resourceType": "QuestionnaireResponse",
+        "id": "intake-20000000-0000-4000-8000-000000000001",
+        "status": "completed",
+        "subject": {
+          "reference": "https://qure.example/fhir/Patient/10000000-0000-4000-8000-000000000001"
+        },
+        "source": {
+          "reference": "https://qure.example/fhir/Patient/10000000-0000-4000-8000-000000000001"
+        },
+        "encounter": {
+          "reference": "https://qure.example/fhir/Encounter/20000000-0000-4000-8000-000000000001"
+        },
+        "item": [
+          {
+            "linkId": "name",
+            "text": "Nama yang dilaporkan pasien",
+            "answer": [
+              {
+                "valueString": "Sari Contoh"
+              }
+            ]
+          },
+          {
+            "linkId": "ageYears",
+            "text": "Umur dalam tahun yang dilaporkan pasien",
+            "answer": [
+              {
+                "valueInteger": 36
+              }
+            ]
+          },
+          {
+            "linkId": "complaint",
+            "text": "Keluhan pasien",
+            "answer": [
+              {
+                "valueString": "batuk"
+              }
+            ]
+          },
+          {
+            "linkId": "duration",
+            "text": "Durasi yang dilaporkan pasien",
+            "answer": [
+              {
+                "valueString": "3 hari"
+              }
+            ]
+          },
+          {
+            "linkId": "allergies",
+            "text": "Alergi yang dilaporkan pasien",
+            "answer": [
+              {
+                "valueString": "kacang-kacangan"
+              }
+            ]
+          },
+          {
+            "linkId": "medications",
+            "text": "Obat yang dilaporkan pasien",
+            "answer": [
+              {
+                "valueString": "tidak ada"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

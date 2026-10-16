@@ -13,6 +13,8 @@ export interface QueueRow {
   etaMinutes: number | null;
   waitedMinutes: number;
   hasAllergies: boolean;
+  callbackSlot?: string | null;
+  etaReason?: string;
 }
 
 export type QueueEvent =
@@ -25,6 +27,7 @@ export type QueueEvent =
 // GET /api/sessions/:id
 export interface SessionDetail {
   sessionId: string;
+  staffHandling?: boolean;
   startedAt: string; // ISO
   patient: { name: string | null; age: number | null };
   conditions: string[];

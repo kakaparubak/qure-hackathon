@@ -169,11 +169,26 @@ describe("loadConfig - validation", () => {
   });
 });
 
-test('intake uses a separate configurable chat endpoint and the existing key',()=>{
+test('intake falls back to OpenRouter and upgrades to z.ai when a key exists',()=>{
   const defaults=loadConfig(VALID_ENV);
-  expect(defaults.llm.endpoint).toBe('https://openrouter.ai/api/v1/chat/completions');
-  expect(defaults.llm.modelId).toBe('openrouter/auto');
-  expect(defaults.llm.apiKey).toBe(defaults.model.apiKey);
+  expect(defaults.llm.primary).toBeNull();
+  expect(defaults.llm.fallback.endpoint).toBe('https://openrouter.ai/api/v1/chat/completions');
+  expect(defaults.llm.fallback.modelId).toBe('openrouter/auto');
+  expect(defaults.llm.fallback.apiKey).toBe(defaults.model.apiKey);
   const custom=loadConfig({...VALID_ENV,LLM_ENDPOINT:'https://example.test/chat',LLM_MODEL_ID:'provider/model'});
-  expect(custom.llm.modelId).toBe('provider/model');
+  expect(custom.llm.fallback.modelId).toBe('provider/model');
+});
+
+test('z.ai subscription becomes the primary intake provider',()=>{
+  const config=loadConfig({...VALID_ENV,ZAI_API_KEY:'zai-key'});
+  expect(config.llm.primary).toEqual({
+    endpoint:'https://api.z.ai/api/paas/v4/chat/completions',
+    apiKey:'zai-key',
+    modelId:'glm-5.3-flash',
+  });
+  const custom=loadConfig({...VALID_ENV,ZAI_API_KEY:'zai-key',ZAI_ENDPOINT:'https://api.z.ai/api/coding/paas/v4/chat/completions',ZAI_MODEL_ID:'glm-4.7'});
+  expect(custom.llm.primary?.endpoint).toContain('/coding/paas/v4/');
+  expect(custom.llm.primary?.modelId).toBe('glm-4.7');
+  // Fallback stays armed even with a primary present.
+  expect(custom.llm.fallback.modelId).toBe('openrouter/auto');
 });

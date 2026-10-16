@@ -71,9 +71,10 @@ describe("the template table", () => {
     for (const family of ESCALATION_FAMILIES) {
       const text = replyFor("escalation", { family });
 
-      expect(text).toContain("Keluhan Anda ditandai penting.");
-      expect(text).toContain("Perawat sedang dihubungi.");
-      expect(text.endsWith("Jika kondisi memburuk, hubungi 119.")).toBe(true);
+      expect(text).toContain("Keluhan Anda ditandai darurat dan masuk antrean prioritas.");
+      expect(text).not.toContain("Perawat sedang dihubungi.");
+      expect(text).toContain("Hubungi 119 sekarang");
+      expect(text.endsWith("Jangan menunggu balasan chat atau petugas puskesmas.")).toBe(true);
     }
   });
 

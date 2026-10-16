@@ -19,11 +19,13 @@
 
 import { RED_FLAG_RULES, type RedFlagFamily } from "../red-flag/patterns";
 
-/** Always the first line of an escalation. An honest promise: review, not 24/7 coverage. */
-export const ACKNOWLEDGEMENT = "Keluhan Anda ditandai penting. Perawat sedang dihubungi.";
+export const PLAYBOOK_VERSION = "2";
+
+/** Always the first line of an escalation. Queue placement is not a promise of immediate staffing or dispatch. */
+export const ACKNOWLEDGEMENT = "Keluhan Anda ditandai darurat dan masuk antrean prioritas. Respons petugas belum dapat dipastikan.";
 
 /** Always the last line of an escalation. PRD requires it present, unconditionally. */
-export const SAFETY_CLOSER = "Jika kondisi memburuk, hubungi 119.";
+export const SAFETY_CLOSER = "Hubungi 119 sekarang untuk bantuan medis darurat. Jangan menunggu balasan chat atau petugas puskesmas.";
 
 /** Used when a red flag fired but no family-specific playbook applies. */
 const GENERIC_PLAYBOOK_ID = "generic";
@@ -101,7 +103,7 @@ export const PLAYBOOKS: Record<string, Playbook> = {
       "Berhenti kontak dengan pemicunya, misalnya makanan atau obat.",
       "Duduk tegak jika sesak. Jika pusing, berbaring dengan kaki ditinggikan.",
       "Jika punya auto-injector epinefrin sesuai resep, gunakan pada paha.",
-      "Keadaan ini bisa memburuk cepat. Perawat sedang dihubungi.",
+      "Keadaan ini bisa memburuk cepat. Cari bantuan medis darurat sekarang.",
     ],
   },
 
@@ -120,7 +122,7 @@ export const PLAYBOOKS: Record<string, Playbook> = {
     id: "mental_health",
     title: "Krisis kesehatan jiwa",
     steps: [
-      "Anda tidak sendirian. Bantuan sedang dihubungi.",
+      "Minta orang tepercaya menemani Anda sekarang.",
       "Jauhkan diri dari benda yang bisa melukai.",
       "Temui orang yang bisa menemani Anda sekarang.",
       "Jika merasa akan melukai diri, hubungi 119 sekarang.",

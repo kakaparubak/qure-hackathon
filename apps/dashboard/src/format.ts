@@ -5,7 +5,9 @@ export const isLongWait = (waitedMinutes: number) => waitedMinutes >= WAIT_LONG_
 
 // TODO: isi setelah backend memberi daftar nilai QueueLane yang lengkap.
 // Selama nilainya belum ada di sini, lane disembunyikan (tier sudah menyampaikan prioritas).
-const LANE_LABELS: Record<string, string> = {};
+const LANE_LABELS: Record<string, string> = {
+  priority: 'Prioritas',normal: 'Antrean biasa',green: 'Panggilan balik',
+};
 
 export function laneLabel(lane: QueueLane): string | null {
   return LANE_LABELS[lane] ?? null;
@@ -45,6 +47,9 @@ export function formatClock(iso: string): string {
 
 // TODO: konfirmasi nilai `role` dari backend. Nilai yang tidak dikenal tampil sebagai "Pesan".
 const ROLE_LABELS: Record<string, string> = {
+  nurse: "Petugas",
+  bot: "Asisten",
+  system: "Sistem",
   patient: "Pasien",
   user: "Pasien",
   assistant: "Asisten",

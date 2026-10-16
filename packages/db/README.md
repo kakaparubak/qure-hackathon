@@ -25,7 +25,7 @@ the application client disables prepared statements for pooler compatibility.
 Generation does not require credentials. No migration runs on import or boot.
 
 The checked-in `0000` is an initial schema for an empty database. `0001` adds
-safety triggers. If you previously pushed the old schema manually, do not apply
+safety triggers. `0002` adds durable queue runtime state. If you previously pushed the old schema manually, do not apply
 the initial migration over it: reconcile and baseline that database first. In
 particular, the old family enum values and numeric clarity column need an
 explicit data migration; existing data must not be dropped to fit this schema.
@@ -44,12 +44,17 @@ explicit data migration; existing data must not be dropped to fit this schema.
 - `triage_results` rejects UPDATE, DELETE and TRUNCATE. Administrative schema
   owners can disable triggers; use a restricted application role in deployment.
 - Check-in count belongs to sessions, including emergencies not yet queued.
-- `readQueue` returns `QueueRow[]`, usable directly in `queue_updated` events.
+- `readQueueBoard` returns `QueueTicketRow[]`, including stable daily ticket
+  numbers and dates. The SSE route emits this array as `queue_updated` data;
+  the dashboard invalidates its queue query and reads fresh REST data.
   Position derives from lane/joined time with session ID as a deterministic
   tie-breaker. Live tier comes from sessions; ticket number and tier-at-join are
-  historical values. Active allergies are surfaced. ETA is derived only when a
+  historical values. Active condition allergies and patient-reported intake
+  allergies are surfaced; explicit none/unknown intake answers are excluded.
+  Session details label intake allergies as patient-reported, without inserting
+  clinical Condition rows or claiming nurse confirmation. ETA is derived only when a
   service interval is explicitly supplied, otherwise null. The legacy ETA column
-  is not read by this projection. This is not a surge-aware scheduling engine.
+  is not read by this projection. Priority demand is included in normal-lane ETA; callback ETA is derived from its slot.
 
 ## Chat persistence
 
@@ -61,10 +66,16 @@ Patient-row locking serializes turns across processes. The provider message-ID
 unique key makes replay suppression survive restarts. A processing exception
 rolls back the claim, so that inbound ID can be retried.
 
-The transaction deliberately spans the bounded triage call (9 seconds maximum) and optional intake extraction
-(6 seconds maximum). This is a simple serialization strategy for the MVP; it holds a pooled
-connection during assessment. Queued routine intake remains `triaging` until the
-separate queue-placement work is implemented. No queue entry is fabricated here.
+The transaction spans the bounded triage call (9 seconds maximum), optional
+intake extraction, and conversational reply generation. Each intake HTTP request
+has a six-second timeout; extraction retries and provider failover can make the
+total turn substantially longer. This serialization strategy holds a pooled
+connection during assessment. Routine intake remains `triaging` until complete,
+then creates a normal-lane queue entry and transitions to `waiting`. Escalations
+create a priority-lane entry or upgrade the existing entry without changing its
+daily ticket. `nursePagedAt` records priority placement, not confirmed external
+notification delivery. Positions are derived; optional ETAs use a configured
+service interval. Surge notices and opt-in callbacks are managed by `createQueueEngine`; `createCheckInEngine` manages scheduled check-ins using the existing session fields and durable message outbox.
 
 WhatsApp sends after commit. Successful send is followed by a second transaction
 that marks the outbound sent and inserts a playbook log, when applicable. HTTP
@@ -84,7 +95,7 @@ inbound deduplication, not exactly-once outbound delivery.
 
 ## Verification
 
-`bun test` runs contract tests and applies both migrations to isolated in-memory
+`bun test` runs contract tests and applies all migrations to isolated in-memory
 PGlite (PostgreSQL). Tests cover all 36 state transitions, de-escalation guards,
 append-only audit rows, provider-ID uniqueness and emergency skeleton patients.
 These tests do not connect to Supabase or validate its production roles/network.
@@ -97,11 +108,71 @@ status. No schema migration is required for this JSON-only feature. The intake
 model gets only this session's recent text history and current message. Extraction
 updates need supporting quotes in the current message. Name is also copied to
 `patients.name`; age remains age in the visit record, never a fabricated birth
-date. Completion does not create a queue entry. Outbound metadata records whether
+date. Completion creates a normal-lane queue entry and a daily ticket, then
+transitions the session to `waiting`. Outbound metadata records whether
 intake used scripted fallback and its next field/counter for diagnostics.
 
 The original triage decision is still audited as its own verdict; intake
-extraction is not recorded as a fabricated clinical decision. A human handoff is
+extraction is not recorded as a fabricated clinical decision. Non-emergency
+questions can be model-written after reply validation, with fixed questions as
+fallback. Medical escalation guidance remains static. A human handoff is
 escalated with wantsHuman set, without setting isEmergency unless medical triage
 also fired. Medical signals still select a playbook even when a human request
 coexists. Existing escalated sessions never return to collecting routine intake.
+
+
+## Staff takeover
+
+`claimStaffSession` locks patient then session, matching the intake lock order,
+and uses the existing `assigned_nurse` column to persist staff ownership before
+sending a dashboard reply. Serving the visit ends this ownership; a new visit
+has no assignment. If delivery fails, the visit stays with staff for retry.
+
+During staff care, patient messages are deduplicated and committed without model
+or LLM calls and without bot replies. Local floor hits still append a verdict,
+raise sticky session priority, and move the queue entry to priority. Legacy
+sessions with nurse transcript rows are recognized on their next inbound turn.
+`process` returning null can mean a persisted staff-managed inbound with no
+outbound intent, as well as an already-seen provider ID. Nurse transcripts retain
+their sender role, and session detail exposes `staffHandling` to the dashboard.
+No new migration is needed.
+
+
+## Queue engine delivery
+
+`queue_runtime` serializes surge episode changes and callback allocation.
+`createQueueEngine.refresh` recalculates normal queue ETA and records at most one
+surge/recovery notice per patient per episode in `messages.meta.queueKey`.
+Explicit callback consent requires an actually delivered offer from the active
+episode and rechecks the patient's whole visit evidence. Callback slots are
+allocated under the runtime row lock, keeping their original daily tickets.
+Completing a callback uses the existing legal `green_lane -> closed` transition.
+
+The API worker ticks every three seconds without overlapping. Notifications move
+from `pending` to `sending` in a transaction before transport, then `sent` or
+`failed`. Obsolete notices and staff takeovers are cancelled before delivery.
+A crash after claiming a send leaves `sending` for reconciliation, preventing
+blind replay across restarts. This outbox is specific to queue notices; earlier
+triage replies retain their existing delivery behavior. No network calls occur
+inside refresh or consent transactions.
+
+
+`createCheckInEngine(db, options)` schedules normal waiting visits, reserves bounded
+reminders and claims each for delivery once. Default: 45 minutes, three attempts;
+the API polls every 30 seconds only with a live WhatsApp channel. New inbound turns
+reschedule and cancel pending notices without resetting the per-visit bound.
+Exhaustion/delivery failure sets `wants_human`, escalates to P2, retains the ticket,
+and records the operational reason in message metadata (no fabricated medical
+triage verdict). Staff takeover, green-lane routing, serving/closure and medical
+escalation clear schedules. Claims recheck eligibility and the 24-hour contact
+window. `sending` deliveries are not retried after crashes; they require
+reconciliation. The window limit produces internal human review without outreach.
+
+
+`createSessionFhirReader(db)(sessionId)` reads a repeatable-read, read-only snapshot
+and calls the pure core FHIR mapper. It returns null for an unknown visit and
+never writes export markers or clinical confirmation. Conditions are restricted
+to the visit's patient and either this visit or longitudinal records. The reader
+retains sent staff-contact evidence, completed callback evidence and the actual
+floor-triggering patient text where intake was interrupted. The API download is
+`GET /api/sessions/:id/fhir` with `application/fhir+json` and `Cache-Control: no-store`.

@@ -62,12 +62,12 @@ describe("escalationReasonFor", () => {
   });
 
   test("red flag at the cutoff escalates", () => {
-    expect(escalationReasonFor(neutralDecision({ redFlag: 0.15 }), SLOTS)).toBe("red_flag");
+    expect(escalationReasonFor(neutralDecision({ redFlag: 0.15, redFlagInformal: 0.6 }), SLOTS)).toBe("red_flag");
   });
 
   test("the cutoff belongs to the model that answered", () => {
-    const onPrimary = neutralDecision({ redFlag: 0.2 });
-    const onFallback = neutralDecision({ redFlag: 0.2, model: "typesafe/jev-1.13" });
+    const onPrimary = neutralDecision({ redFlag: 0.2, redFlagInformal: 0.6 });
+    const onFallback = neutralDecision({ redFlag: 0.2, redFlagInformal: 0.6, model: "typesafe/jev-1.13" });
 
     expect(escalationReasonFor(onPrimary, SLOTS)).toBe("red_flag");
     // 0.2 is above the primary's 0.15 and below the fallback's 0.31.
@@ -75,7 +75,7 @@ describe("escalationReasonFor", () => {
   });
 
   test("an unknown model id falls back to the strictest cutoff", () => {
-    expect(escalationReasonFor(neutralDecision({ redFlag: 0.2, model: null }), SLOTS)).toBe(
+    expect(escalationReasonFor(neutralDecision({ redFlag: 0.2, redFlagInformal: 0.6, model: null }), SLOTS)).toBe(
       "red_flag",
     );
   });
@@ -119,7 +119,7 @@ describe("replyKindFor", () => {
   test("ambiguity never de-escalates a red flag", () => {
     // The whole invariant in one assertion: the follow-up branch sits below the
     // escalation branch and cannot be reached once anything has fired.
-    const decision = neutralDecision({ clarity: "ambiguous", redFlag: 0.9 });
+    const decision = neutralDecision({ clarity: "ambiguous", redFlag: 0.9, redFlagInformal: 0.9 });
 
     expect(replyKindFor(decision, SLOTS)).toBe("escalation");
   });
@@ -205,7 +205,7 @@ describe("createOrchestrator - the ladder", () => {
   });
 
   test("a red flag above the cutoff escalates with the generic playbook", async () => {
-    const model = new FakeDecisionModel(neutralDecision({ redFlag: 0.2 }));
+    const model = new FakeDecisionModel(neutralDecision({ redFlag: 0.2, redFlagInformal: 0.6 }));
 
     const reply = await createOrchestrator(deps(model)).handleInbound(message());
 
@@ -384,4 +384,34 @@ test('medical emergency keeps its playbook when a human is requested too',async(
   expect(outcome.reason).toBe('wants_human');
   expect(outcome.medicalEmergency).toBe(true);
   expect(outcome.reply.purpose).toBe('playbook');
+});
+
+describe("red_flag corroboration gate", () => {
+  // Measured against the live model: a casual chest mention scores red_flag
+  // ~0.22 against a 0.15 cutoff with urgency < 2 and informal ~0.19. Real
+  // emergencies score ~0.99 on both signals and urgency >= 3.
+  test("a casual chest mention no longer escalates on red_flag alone", () => {
+    const casual = neutralDecision({ redFlag: 0.225, redFlagInformal: 0.194, urgency: 1.68 });
+    expect(escalationReasonFor(casual, SLOTS)).toBeNull();
+  });
+
+  test("urgency corroboration escalates a genuine red flag", () => {
+    const real = neutralDecision({ redFlag: 0.99, redFlagInformal: 0.99, urgency: 2.5 });
+    expect(escalationReasonFor(real, SLOTS)).toBe("red_flag");
+  });
+
+  test("informal conviction corroborates without urgency", () => {
+    const odd = neutralDecision({ redFlag: 0.9, redFlagInformal: 0.8, urgency: 1.5 });
+    expect(escalationReasonFor(odd, SLOTS)).toBe("red_flag");
+  });
+
+  test("urgency alone at 3 still escalates without any red flag", () => {
+    expect(escalationReasonFor(neutralDecision({ urgency: 3 }), SLOTS)).toBe("urgency");
+  });
+
+  test("the floor is untouched by the gate", () => {
+    // Floor-sourced decisions escalate before the ladder runs at all.
+    const floor = neutralDecision({ source: "red_flag_floor", urgency: null });
+    expect(escalationReasonFor(floor, SLOTS)).toBe("red_flag_floor");
+  });
 });

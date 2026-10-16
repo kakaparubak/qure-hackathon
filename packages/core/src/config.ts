@@ -44,7 +44,12 @@ export interface WhatsAppConfig {
 
 export interface Config {
   model: ModelConfig;
-  llm: IntakeModelConfig;
+  llm: {
+    /** The operator's z.ai GLM subscription; null when ZAI_API_KEY is unset. */
+    primary: IntakeModelConfig | null;
+    /** Cheap OpenRouter model, always present. */
+    fallback: IntakeModelConfig;
+  };
   /** null when WhatsApp is not enabled; the webhook route still works. */
   whatsapp: WhatsAppConfig | null;
   port: number;
@@ -223,9 +228,20 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   return {
     model: modelConfig(env),
     llm: {
-      endpoint: optional(env,'LLM_ENDPOINT') ?? 'https://openrouter.ai/api/v1/chat/completions',
-      apiKey: required(env,'OPENROUTER_API_KEY'),
-      modelId: optional(env,'LLM_MODEL_ID') ?? 'openrouter/auto',
+      // Primary: the operator's own z.ai GLM subscription. Optional - without
+      // a key the chain is just the OpenRouter fallback.
+      primary: env.ZAI_API_KEY?.trim()
+        ? {
+            endpoint: optional(env, "ZAI_ENDPOINT") ?? "https://api.z.ai/api/paas/v4/chat/completions",
+            apiKey: env.ZAI_API_KEY.trim(),
+            modelId: optional(env, "ZAI_MODEL_ID") ?? "glm-5.3-flash",
+          }
+        : null,
+      fallback: {
+        endpoint: optional(env,'LLM_ENDPOINT') ?? 'https://openrouter.ai/api/v1/chat/completions',
+        apiKey: required(env,'OPENROUTER_API_KEY'),
+        modelId: optional(env,'LLM_MODEL_ID') ?? 'openrouter/auto',
+      },
     },
     whatsapp: whatsappConfig(env),
     port: port(env),

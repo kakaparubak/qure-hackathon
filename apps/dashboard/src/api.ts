@@ -21,9 +21,8 @@ export async function getQueue(): Promise<QueueRow[]> {
   return get<QueueRow[]>("/api/queue");
 }
 
-// TODO: konfirmasi respons POST /api/sessions/:id/serve, khususnya status untuk
-// "sudah dilayani" dan "tidak ditemukan". Kalau pasien sudah dilayani di terminal lain,
-// seharusnya baris dianggap selesai, bukan dikembalikan.
+// Backend contract (confirmed): 204 on served or already-finished elsewhere -
+// an already-served patient reads as done, not as an error to resurrect.
 export async function serveSession(sessionId: string): Promise<void> {
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 400)); // simulasi jaringan
@@ -33,6 +32,22 @@ export async function serveSession(sessionId: string): Promise<void> {
   const res = await fetch(`${BASE}/api/sessions/${encodeURIComponent(sessionId)}/serve`, {
     method: "POST",
   });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// Kirim pesan perawat ke pasien lewat WhatsApp. Tersimpan di transkrip yang sama dengan bot.
+export async function sendNurseMessage(sessionId: string, body: string): Promise<void> {
+  if (USE_MOCK) {
+    await new Promise((r) => setTimeout(r, 300));
+    return;
+  }
+  const res = await fetch(`${BASE}/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (res.status === 404) throw new Error("Sesi tidak ditemukan.");
+  if (res.status === 503) throw new Error("Pesan gagal terkirim. Coba lagi.");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -61,4 +76,11 @@ export async function getMessages(id: string): Promise<ChatMessage[]> {
     return mockMessages(id);
   }
   return get<ChatMessage[]>(`${sessionPath(id)}/messages`);
+}
+export async function getFhirExport(id:string):Promise<Blob> {
+  if(USE_MOCK) throw new Error('Ekspor FHIR tersedia saat tersambung ke data pasien.');
+  const res=await fetch(`${BASE}${sessionPath(id)}/fhir`);
+  if(res.status === 404) throw new Error('Sesi tidak ditemukan.');
+  if(!res.ok) throw new Error('Ekspor FHIR belum tersedia. Coba lagi.');
+  return res.blob();
 }

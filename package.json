@@ -9,7 +9,9 @@
     "dev": "bun --env-file=.env --hot apps/api/src/index.ts",
     "build": "bun run --cwd apps/dashboard build",
     "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p packages/core && tsc --noEmit -p packages/db && tsc --noEmit -p apps/dashboard",
-    "test": "bun test"
+    "test": "bun test apps/api packages",
+    "test:dashboard": "cd apps/dashboard && bun run test",
+    "demo:fhir": "bun scripts/export-fhir-demo.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.3",

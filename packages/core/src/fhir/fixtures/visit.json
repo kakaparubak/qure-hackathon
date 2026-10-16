@@ -1,0 +1,48 @@
+{
+  "exportedAt": "2026-10-16T09:00:00.000Z",
+  "patient": {
+    "id": "10000000-0000-4000-8000-000000000001",
+    "waNumber": "6280000000000",
+    "name": "Sari Contoh",
+    "sex": "female"
+  },
+  "session": {
+    "id": "20000000-0000-4000-8000-000000000001",
+    "patientId": "10000000-0000-4000-8000-000000000001",
+    "status": "served",
+    "priority": "P3",
+    "startedAt": "2026-10-16T08:00:00.000Z",
+    "closedAt": "2026-10-16T08:45:00.000Z",
+    "staffStarted": true,
+    "served": true,
+    "reasonForVisit": "Keluhan batuk, perlu penilaian petugas",
+    "category": "fever_infection",
+    "intake": {
+      "version": 1,
+      "fields": {
+        "name": "Sari Contoh",
+        "ageYears": 36,
+        "complaint": "batuk",
+        "duration": "3 hari",
+        "allergies": "kacang-kacangan",
+        "medications": "tidak ada"
+      },
+      "awaiting": null,
+      "attempts": 0,
+      "status": "complete"
+    }
+  },
+  "conditions": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "patientId": "10000000-0000-4000-8000-000000000001",
+      "sessionId": null,
+      "kind": "chronic",
+      "icd10Code": "I10",
+      "display": "Hipertensi yang telah dikonfirmasi klinisi (contoh sintetis)",
+      "clinicalStatus": "active",
+      "confirmedBy": "Perawat Contoh",
+      "confirmedAt": "2026-10-01T01:00:00.000Z"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useQueue } from "../useQueue";
 import { formatEta, isLongWait, laneLabel } from "../format";
 import type { QueueRow } from "../types";
@@ -17,12 +17,10 @@ const btnBase = "min-h-11 rounded px-3 py-2 text-sm";
 
 function QueueItem({
   row,
-  onServe,
   onOpen,
   restoreFocus,
 }: {
   row: QueueRow;
-  onServe: (row: QueueRow) => void;
   onOpen: (sessionId: string) => void;
   restoreFocus: boolean;
 }) {
@@ -30,7 +28,6 @@ function QueueItem({
   const long = isLongWait(row.waitedMinutes);
   const lane = laneLabel(row.lane);
   const name = row.patientName ?? "pasien tanpa nama";
-  const [confirming, setConfirming] = useState(false);
   const openRef = useRef<HTMLButtonElement>(null);
 
   // Kembali dari halaman detail: fokus ke baris yang tadi dibuka.
@@ -38,17 +35,10 @@ function QueueItem({
     if (restoreFocus) openRef.current?.focus();
   }, []);
 
-  // Konfirmasi menutup sendiri setelah 6 detik supaya tidak tertinggal terbuka.
-  useEffect(() => {
-    if (!confirming) return;
-    const id = setTimeout(() => setConfirming(false), 6000);
-    return () => clearTimeout(id);
-  }, [confirming]);
-
   return (
     <li
       className={`relative grid grid-cols-[2.5rem_3.5rem_1fr_auto] items-center gap-3 border-b border-line px-4 py-3 ${
-        isP1 ? "border-l-8 border-l-red-700 bg-red-50" : "border-l-8 border-l-transparent bg-white"
+        isP1 ? "border-l-8 border-l-red-700 bg-red-50" : row.lane === 'green' ? "border-l-8 border-l-emerald-600 bg-emerald-50" : "border-l-8 border-l-transparent bg-white"
       }`}
     >
       <span className="text-lg font-semibold tabular-nums text-muted">{row.position}</span>
@@ -72,7 +62,11 @@ function QueueItem({
             {long && <span className="sr-only"> (lama)</span>}
           </span>
           <span aria-hidden>·</span>
-          <span className={isP1 ? "font-bold text-red-900" : undefined}>{formatEta(row.tier, row.etaMinutes)}</span>
+          <span title={row.etaReason} className={isP1 ? "font-bold text-red-900" : undefined}>
+            {row.lane === 'green' && row.callbackSlot
+              ? `Panggilan ${new Date(row.callbackSlot).toLocaleString('id-ID',{timeZone:'Asia/Jakarta',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} WIB`
+              : formatEta(row.tier, row.etaMinutes)}
+          </span>
           {lane && (
             <>
               <span aria-hidden>·</span>
@@ -87,54 +81,25 @@ function QueueItem({
             ⚠ Alergi
           </span>
         )}
-        {!confirming && (
-          <button
-            onClick={() => setConfirming(true)}
-            className={`${btnBase} border border-line bg-white font-semibold hover:bg-slate-100`}
-          >
-            Layani
-          </button>
-        )}
-      </div>
-
-      {confirming && (
-        <div
-          role="group"
-          aria-label={`Konfirmasi melayani ${name}`}
-          className="relative z-[1] col-span-full flex flex-wrap items-center gap-2"
+        {/* Melayani = buka ruang chat dengan pasien. Penyelesaian ditandai
+            dari dalam chat, bukan dari antrean. */}
+        <button
+          onClick={() => onOpen(row.sessionId)}
+          className={`${btnBase} bg-ink font-bold text-white hover:opacity-90`}
         >
-          <span className="mr-auto text-sm font-semibold">
-            Layani {name} (no. {row.position})?
-          </span>
-          <button
-            onClick={() => {
-              setConfirming(false);
-              onServe(row);
-            }}
-            className={`${btnBase} bg-ink font-bold text-white`}
-          >
-            Ya, layani
-          </button>
-          <button
-            onClick={() => setConfirming(false)}
-            className={`${btnBase} border border-line bg-white font-semibold hover:bg-slate-100`}
-          >
-            Batal
-          </button>
-        </div>
-      )}
+          Layani
+        </button>
+      </div>
     </li>
   );
 }
 
 export function QueueBoard({
   polling = false,
-  onServe,
   onOpen,
   restoreFocusId = null,
 }: {
   polling?: boolean;
-  onServe: (row: QueueRow) => void;
   onOpen: (sessionId: string) => void;
   restoreFocusId?: string | null;
 }) {
@@ -163,7 +128,6 @@ export function QueueBoard({
         <QueueItem
           key={row.sessionId}
           row={row}
-          onServe={onServe}
           onOpen={onOpen}
           restoreFocus={row.sessionId === restoreFocusId}
         />

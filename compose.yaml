@@ -1,0 +1,40 @@
+name: qure
+services:
+  qure:
+    image: qure:local
+    build:
+      context: .
+      args:
+        BUN_VERSION: "1.4.3"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    env_file:
+      - path: ./.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      WA_AUTH_DIR: /data/baileys
+      TZ: Asia/Jakarta
+    ports:
+      - "127.0.0.1:${QURE_HOST_PORT:-3000}:3000"
+    volumes:
+      - baileys_session:/data/baileys
+    mem_limit: ${QURE_MEMORY_LIMIT:-768m}
+    memswap_limit: ${QURE_MEMORY_LIMIT:-768m}
+    cpus: ${QURE_CPUS:-1.0}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  baileys_session:
