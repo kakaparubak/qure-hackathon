@@ -198,6 +198,9 @@ test('an extraction failure can still receive a valid conversational reply',asyn
 test('reply validation distinguishes medication questions from instructions and checks the pending field',async()=>{
   const {validReply}=await import('./engine');
   expect(validReply('Sekarang sedang minum obat apa?', 'medications')).toBe(true);
+  expect(validReply('Ada makanan yang tidak cocok atau pernah menimbulkan reaksi?', 'allergies')).toBe(true);
+  expect(validReply('Biasanya Kaka dipanggil siapa?', 'name')).toBe(true);
+  expect(validReply('Batuknya mulai kapan terasa?', 'duration')).toBe(true);
   for(const reply of ['Minum obat dulu ya. Siapa nama pasien?', 'Sebaiknya minum obat dulu, sudah minum obat apa?', 'Obat-obatan aman. Sedang konsumsi obat apa?']) {
     expect(validReply(reply)).toBe(false);
   }

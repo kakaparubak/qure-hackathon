@@ -60,12 +60,12 @@ export interface IntakeModel {
  */
 const REPLY_FORBIDDEN = /\b(aspirin|paracetamol|antibiotik|dosis|\d+\s*mg|jangan khawatir|tenang saja|berbahaya|aman|jangan panik|segera ke igd|hubungi 119|darurat|prioritas|gawat darurat)\b/i;
 const FIELD_QUESTIONS:Record<IntakeField,RegExp> = {
-  name:/\bnama\w*\b/i,
-  ageYears:/\b(umur\w*|usia\w*|tahun)\b/i,
-  complaint:/\b(keluhan\w*|gejala\w*|dirasakan|sakit\w*)\b/i,
-  duration:/\b(kapan|sejak|berapa lama|sudah berapa)\b/i,
-  allergies:/\balergi\w*\b/i,
-  medications:/\b(obat\w*|vitamin\w*|suplemen\w*|konsumsi\w*)\b/i,
+  name:/\b(nama\w*|dipanggil|panggilan|sebut(?:kan)?)\b/i,
+  ageYears:/\b(umur\w*|usia\w*|berusia|tahun)\b/i,
+  complaint:/\b(keluhan\w*|gejala\w*|dirasakan|sakit\w*|nyeri\w*|tidak nyaman|apa yang terasa)\b/i,
+  duration:/\b(kapan|sejak|berapa lama|sudah berapa|mulai)\b/i,
+  allergies:/\b(alergi\w*|pantang\w*|sensitif\w*|reaksi\w*|bereaksi|tidak cocok|kurang cocok)\b/i,
+  medications:/\b(obat\w*|vitamin\w*|suplemen\w*|konsumsi\w*|mengonsumsi|minum\w*|diminum|digunakan)\b/i,
 };
 export function validReply(text:string, awaiting?:IntakeField|null):boolean {
   if (text.length < 8 || text.length > 600) return false;
