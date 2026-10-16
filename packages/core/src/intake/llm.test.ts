@@ -47,8 +47,28 @@ test('primary failure falls through to the fallback per call',async()=>{
   },fetchImpl);
   const result=await model.extract({state:emptyIntake(),history:[],text:'Saya Budi'});
   expect(result.updates.name?.value).toBe('Budi');
-  // The primary is retried once with a bigger budget before the chain moves on.
-  expect(primaryCalls).toBe(2);
+  // HTTP failure goes directly to the fallback instead of retrying the same provider.
+  expect(primaryCalls).toBe(1);
+  expect(fallbackCalls).toBe(1);
+});
+
+test('an extraction timeout fails over immediately without retrying the timed-out provider',async()=>{
+  let primaryCalls=0,fallbackCalls=0;
+  const fetchImpl=(async(_url:unknown,init:RequestInit)=>{
+    const isPrimary=new Headers(init.headers).get('authorization')==='Bearer zai-good';
+    if(isPrimary) {
+      primaryCalls++;
+      throw Object.assign(new Error('request timed out'),{name:'TimeoutError'});
+    }
+    fallbackCalls++;
+    return new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:JSON.stringify({updates:{},nextField:'name'})}}]}));
+  }) as unknown as typeof fetch;
+  const model=createIntakeModel({
+    primary:{endpoint:'https://zai.test/chat',apiKey:'zai-good',modelId:'glm-5.3-flash'},
+    fallback:{endpoint:'https://example.test/chat',apiKey:'test-only',modelId:'test/model'},
+  },fetchImpl);
+  expect((await model.extract(input)).nextField).toBe('name');
+  expect(primaryCalls).toBe(1);
   expect(fallbackCalls).toBe(1);
 });
 
